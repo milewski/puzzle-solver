@@ -1,9 +1,10 @@
-use esp_idf_hal::i2c::{I2c, I2cDriver};
-use esp_idf_hal::peripheral::Peripheral;
-use esp_idf_hal::gpio::{InputPin, OutputPin};
-use esp_idf_hal::i2c::config::Config;
 use esp_idf_hal::delay::{BLOCK, FreeRtos};
+use esp_idf_hal::gpio::{InputPin, OutputPin};
+use esp_idf_hal::i2c::{I2c, I2cDriver};
+use esp_idf_hal::i2c::config::Config;
+use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_hal::prelude::FromValueType;
+
 use crate::utilities::random_buffer;
 
 pub struct Eeprom<'d, const BLOCK_SIZE: usize, const CAPACITY: usize> {
@@ -23,6 +24,50 @@ impl<'d, const BLOCK_SIZE: usize, const CAPACITY: usize> Eeprom<'d, BLOCK_SIZE, 
         Self {
             address: 0b1010_000,
             driver,
+        }
+    }
+
+    pub fn read_offset(&mut self, offset: u16) -> Vec<u8> {
+        let mut response: Vec<u8> = vec![];
+
+        let index = offset.to_le_bytes();
+        let mut buffer = [0; BLOCK_SIZE];
+        let mut attempts = 0;
+
+        loop {
+            if let Ok(_) = self.driver.write_read(self.address, &index, &mut buffer, BLOCK) {
+                response.extend_from_slice(buffer.as_slice());
+
+                break;
+            }
+
+            if attempts > 10 {
+                panic!("Could not read all bytes...");
+            }
+
+            attempts += 1;
+            FreeRtos::delay_ms(1);
+        }
+
+        response
+    }
+
+    pub fn write_offset(&mut self, offset: u16, data: &[u8; BLOCK_SIZE]) {
+        let mut command: Vec<u8> = offset.to_le_bytes().to_vec();
+
+        command.extend_from_slice(data);
+
+        let mut attempts = 0;
+
+        loop {
+            match self.driver.write(self.address, &command.as_slice(), BLOCK) {
+                Ok(_) => break,
+                Err(_) if attempts < 10 => {
+                    attempts += 1;
+                    FreeRtos::delay_ms(1);
+                }
+                Err(error) => panic!("{:?}", error)
+            }
         }
     }
 
@@ -53,24 +98,7 @@ impl<'d, const BLOCK_SIZE: usize, const CAPACITY: usize> Eeprom<'d, BLOCK_SIZE, 
         let mut response: Vec<u8> = vec![];
 
         for block in 0..BLOCK_SIZE {
-            let index = (block as u16).to_le_bytes();
-            let mut buffer = [0; BLOCK_SIZE];
-            let mut attempts = 0;
-
-            loop {
-                if let Ok(_) = self.driver.write_read(self.address, &index, &mut buffer, BLOCK) {
-                    response.extend_from_slice(buffer.as_slice());
-
-                    break;
-                }
-
-                if attempts > 10 {
-                    panic!("Could not read all bytes...");
-                }
-
-                attempts += 1;
-                FreeRtos::delay_ms(1);
-            }
+            response.extend_from_slice(self.read_offset(block as u16).as_slice());
         }
 
         response

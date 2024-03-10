@@ -1,17 +1,19 @@
-use serde::{Deserialize, Serialize};
-use std::{include_bytes, println};
-use num_bigint::BigUint;
 use core::panic;
-use k256::{ProjectivePoint, PublicKey, SecretKey};
-use esp_idf_hal::delay::FreeRtos;
-use anyhow::anyhow;
-use num_traits::{Num, One};
+use std::{include_bytes, println};
 use std::ops::{Add, AddAssign, Rem, Sub};
+
+use anyhow::anyhow;
+use esp_idf_hal::delay::FreeRtos;
+use k256::{ProjectivePoint, PublicKey, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
+use num_bigint::BigUint;
+use num_traits::{Num, One};
+use serde::{Deserialize, Serialize};
+
 use crate::utilities::{random_buffer, ripemd160, sha256};
 
 pub struct Puzzle {
-    number: u8,
+    pub number: u8,
     ripemd160_address: [u8; 20],
     address: String,
     range: String,
@@ -57,7 +59,7 @@ impl Puzzle {
         )
     }
 
-    pub fn start(&mut self) -> anyhow::Result<String> {
+    pub fn start(&mut self) -> anyhow::Result<BigUint> {
         println!("Starting puzzle #{} {:?}", self.number, self.address);
 
         self.random_mode()
@@ -83,7 +85,7 @@ impl Puzzle {
         min.add(random.rem(max.sub(min).add(1u8)))
     }
 
-    pub fn random_mode(&mut self) -> anyhow::Result<String> {
+    pub fn random_mode(&mut self) -> anyhow::Result<BigUint> {
         let (low, high) = self.range();
         let increments = BigUint::from(u16::MAX);
 
@@ -111,7 +113,7 @@ impl Puzzle {
         Ok(secret.public_key())
     }
 
-    fn compute(&mut self, min: &BigUint, max: &BigUint) -> anyhow::Result<String> {
+    fn compute(&mut self, min: &BigUint, max: &BigUint) -> anyhow::Result<BigUint> {
         let mut counter = min.clone();
         let mut public_key = self.get_public_key(&counter)?.to_projective();
 
@@ -120,9 +122,8 @@ impl Puzzle {
             let ripemd160: [u8; 20] = ripemd160(&sha256);
 
             if self.ripemd160_address == ripemd160 {
-                println!("found: {:?}", counter.to_str_radix(16));
-
-                return Ok(counter.to_str_radix(16));
+                println!("Found Solution: {:?}", counter.to_str_radix(16));
+                return Ok(counter);
             }
 
             public_key.add_assign(ProjectivePoint::GENERATOR);
