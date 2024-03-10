@@ -3,7 +3,7 @@
 https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
 
 > In 2015, in order to show the hugeness of the private key space (or maybe just for fun), someone created a "puzzle"
-> where he chose keys in a certain smaller space and sent increasing amounts to each of those keys like this:
+> where he chose keys in a certain smaller space and sent increasing amounts to each of those keys like this [...]
 
 Several puzzles remain unsolved, amounting to a total of 956.5 BTC!
 
