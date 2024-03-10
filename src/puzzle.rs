@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::{include_bytes, println};
 use num_bigint::BigUint;
 use core::panic;
-use esp_idf_sys::{esp_fill_random, mbedtls_ripemd160, mbedtls_sha256};
 use k256::{ProjectivePoint, PublicKey, SecretKey};
 use esp_idf_hal::delay::FreeRtos;
 use anyhow::anyhow;
