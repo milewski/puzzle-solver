@@ -9,7 +9,7 @@ Several puzzles remain unsolved, amounting to a total of 956.5 BTC!
 
 The goal of this project is to tackle these puzzles. It operates on a low-powered ESP32 board,
 generating random private keys within the challenge's key space and checking if you are the lucky winner. The likelihood
-of success is incredibly slim, given that the device is millions of times slower than the slowest PC you've ever used.
+of success is zero to none, given that the device is millions of times slower than the slowest PC you've ever used.
 But who knows? Maybe you're feeling lucky today and want to give it a shot.
 
 ## Development Setup Guide
