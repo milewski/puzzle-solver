@@ -33,7 +33,7 @@ brew install libuv
 
 Manual: https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/get-started/index.html#installation
 
-## On windows attach to using WSL
+## If you are using WSL on windows
 
 Use the following commands to share usb device between the host and wsl
 
