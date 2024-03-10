@@ -9,6 +9,7 @@ use anyhow::anyhow;
 use num_traits::{Num, One};
 use std::ops::{Add, AddAssign, Rem, Sub};
 use k256::elliptic_curve::group::GroupEncoding;
+use crate::utilities::{random_buffer, ripemd160, sha256};
 
 pub struct Puzzle {
     number: u8,
@@ -77,17 +78,8 @@ impl Puzzle {
             panic!("Invalid range: min should be less than or equal to max");
         }
 
-        let random = unsafe {
-            let mut result: [u8; 21] = [0; 21];
-            let bits = (max.bits() / 8) as usize;
-
-            esp_fill_random(
-                &mut result as *mut _ as *mut std::ffi::c_void,
-                result.len(),
-            );
-
-            BigUint::from_bytes_le(&result[0..=bits])
-        };
+        let bits = (max.bits() / 8) as usize;
+        let random = BigUint::from_bytes_le(&random_buffer::<21>()[0..=bits]);
 
         min.add(random.rem(max.sub(min).add(1u8)))
     }
@@ -117,8 +109,6 @@ impl Puzzle {
 
         let secret = SecretKey::from_slice(&private_key_bytes)?;
 
-        // println!("Public {:?}", secret.public_key().to_projective().to_bytes());
-
         Ok(secret.public_key())
     }
 
@@ -127,21 +117,8 @@ impl Puzzle {
         let mut public_key = self.get_public_key(&counter)?.to_projective();
 
         while counter <= *max {
-            let sha256: [u8; 32] = unsafe {
-                let bytes = public_key.to_bytes();
-                let length = bytes.len();
-                let mut output = [0; 32];
-
-                mbedtls_sha256(bytes.as_ptr(), length, output.as_mut_ptr(), 0);
-                output
-            };
-
-            let ripemd160: [u8; 20] = unsafe {
-                let length = sha256.len();
-                let mut output = [0; 20];
-                mbedtls_ripemd160(sha256.as_ptr(), length, output.as_mut_ptr());
-                output
-            };
+            let sha256: [u8; 32] = sha256(&public_key.to_bytes());
+            let ripemd160: [u8; 20] = ripemd160(&sha256);
 
             if self.ripemd160_address == ripemd160 {
                 println!("found: {:?}", counter.to_str_radix(16));
