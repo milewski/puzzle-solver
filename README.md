@@ -12,6 +12,13 @@ generating random private keys within the challenge's key space and checking if 
 of success is zero to none, given that the device is millions of times slower than the slowest PC you've ever used.
 But who knows? Maybe you're feeling lucky today and want to give it a shot.
 
+## Desktop 
+
+```shell
+cargo run -p desktop --release --target x86_64-unknown-linux-gnu
+cargo run -p esp32 --release --target xtensa-esp32s3-espidf
+```
+
 ## Development Setup Guide
 
 Install `esp32` [toolchain](https://github.com/esp-rs/rust-build):
@@ -38,5 +45,5 @@ Manual: https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/get-starte
 Use the following commands to share usb device between the host and wsl
 
 - Install https://github.com/dorssel/usbipd-win
-- usbipd wsl list
+- usbipd list
 - usbipd attach --wsl --busid 2-2

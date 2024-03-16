@@ -5,8 +5,6 @@ use esp_idf_hal::i2c::config::Config;
 use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_hal::prelude::FromValueType;
 
-use crate::utilities::random_buffer;
-
 pub struct Eeprom<'d, const BLOCK_SIZE: usize, const CAPACITY: usize> {
     address: u8,
     driver: I2cDriver<'d>,
@@ -104,20 +102,20 @@ impl<'d, const BLOCK_SIZE: usize, const CAPACITY: usize> Eeprom<'d, BLOCK_SIZE, 
         response
     }
 
-    pub fn test(&mut self) {
-        let mut data: Vec<u8> = vec![];
-
-        for _ in 1..=BLOCK_SIZE {
-            data.extend_from_slice(&random_buffer::<BLOCK_SIZE>());
-        }
-
-        self.write(data.as_slice());
-
-        let result = self.read_all();
-        self.reset();
-
-        assert_eq!(result, data, "equals");
-    }
+    // pub fn test(&mut self) {
+    //     let mut data: Vec<u8> = vec![];
+    //
+    //     for _ in 1..=BLOCK_SIZE {
+    //         data.extend_from_slice(&random_buffer::<BLOCK_SIZE>());
+    //     }
+    //
+    //     self.write(data.as_slice());
+    //
+    //     let result = self.read_all();
+    //     self.reset();
+    //
+    //     assert_eq!(result, data, "equals");
+    // }
 
     fn reset(&mut self) {
         self.write(&[0; 64 * 128]);

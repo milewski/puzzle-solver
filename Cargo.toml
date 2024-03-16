@@ -2,6 +2,6 @@
 resolver = "2"
 members = [
     "workspaces/desktop",
-    "workspaces/core",
-    "workspaces/esp32"
+    "workspaces/esp32",
+    "workspaces/shared",
 ]

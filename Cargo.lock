@@ -321,19 +321,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bs58",
- "k256",
- "num-bigint",
- "num-traits",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "core-foundation-sys"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -460,8 +447,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
- "core",
  "rand",
+ "shared",
 ]
 
 [[package]]
@@ -752,22 +739,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "esp-puzzle-solver"
+name = "esp32"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "bs58",
  "display-interface 0.5.0",
  "embedded-graphics",
  "embuild",
  "esp-idf-hal",
  "esp-idf-sys",
- "k256",
  "num-bigint",
  "num-traits",
  "profont",
  "serde",
  "serde_json",
+ "shared",
  "ssd1306",
 ]
 
@@ -1480,6 +1466,20 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "digest",
+]
+
+[[package]]
+name = "shared"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bs58",
+ "embedded-hal 0.2.7",
+ "k256",
+ "num-bigint",
+ "num-traits",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

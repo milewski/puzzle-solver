@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{available_parallelism, JoinHandle, spawn};
 
 use anyhow::bail;
+use embedded_hal::blocking::delay;
+use embedded_hal::blocking::delay::{DelayMs, DelayUs};
 use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
 use num_bigint::BigUint;
@@ -28,6 +30,14 @@ impl<T: Hasher + Send + Sync + 'static> PuzzleManager<T> {
                 puzzles: Puzzles::load()?,
                 randomizer: Arc::new(Utility::new(randomizer)),
             }
+        )
+    }
+
+    pub fn start_embedded(&self, number: u8, delay: impl DelayUs<u32> + 'static, notifier: impl Fn(Event) + Send + Sync + 'static) -> anyhow::Result<()> {
+        let mut delay = Platform::Embedded(Box::new(delay));
+
+        Ok(
+            self.get_worker_for_puzzle(number)?.work_embedded(Arc::new(notifier), &mut delay)
         )
     }
 
@@ -70,6 +80,11 @@ impl<T: Hasher + Send + Sync + 'static> PuzzleManager<T> {
     }
 }
 
+enum Platform {
+    Desktop,
+    Embedded(Box<dyn DelayUs<u32>>),
+}
+
 struct Worker<T: Hasher> {
     range: PuzzleRange,
     increments: BigUint,
@@ -90,6 +105,16 @@ impl Deref for Solution {
 impl Solution {
     pub fn to_hex(&self) -> String {
         self.to_str_radix(16)
+    }
+
+    pub fn to_private_key(&self) -> [u8; 32] {
+        let mut buffer = [0; 32];
+
+        for (index, byte) in self.to_le_bytes().into_iter().enumerate() {
+            buffer[32 - index - 1] = byte;
+        }
+
+        buffer
     }
 }
 
@@ -119,9 +144,17 @@ impl<T> Worker<T> where T: Hasher {
         Ok(point)
     }
 
+    fn work_embedded(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>, delay: &mut Platform) {
+        loop {
+            if let Ok(solution) = self.compute(delay) {
+                break notifier(Event::SolutionFound(Solution(solution)));
+            }
+        }
+    }
+
     fn work_forever(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>) {
         loop {
-            if let Ok(solution) = self.compute() {
+            if let Ok(solution) = self.compute(&mut Platform::Desktop) {
                 break notifier(Event::SolutionFound(Solution(solution)));
             }
         }
@@ -133,19 +166,24 @@ impl<T> Worker<T> where T: Hasher {
                 break;
             }
 
-            if let Ok(solution) = self.compute() {
+            if let Ok(solution) = self.compute(&mut Platform::Desktop) {
                 break notifier(Event::SolutionFound(Solution(solution)));
             }
         }
     }
 
-    fn compute(&self) -> anyhow::Result<BigUint> {
+    fn compute(&self, platform: &mut Platform) -> anyhow::Result<BigUint> {
         let (min, max) = self.range.random_between(&self.increments, self.utility.clone());
 
         let mut counter = min;
         let mut point = self.get_curve_point(&counter)?;
 
         while counter <= max {
+            match platform {
+                Platform::Desktop => {}
+                Platform::Embedded(delay) => delay.delay_us(1)
+            }
+
             let sha256: [u8; 32] = self.utility.sha256(&point.to_bytes());
             let ripemd160: [u8; 20] = self.utility.ripemd160(&sha256);
 

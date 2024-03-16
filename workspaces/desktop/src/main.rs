@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering::Relaxed;
 use bitcoin::hashes::Hash;
 use rand::RngCore;
 
-use core::puzzle::{Event, Hasher, PuzzleManager};
+use shared::puzzle::{Event, Hasher, PuzzleManager};
 
 struct Randomizer {}
 
