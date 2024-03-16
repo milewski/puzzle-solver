@@ -1,6 +1,13 @@
 [package]
-name = "desktop-puzzle-solver"
+name = "desktop"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+core = { path = "../core" }
+anyhow = "^1.0.81"
+rand = "0.8.5"
+bitcoin = "^0.31.1"
+
+[profile.release]
+opt-level = 3

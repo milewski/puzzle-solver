@@ -1,297 +1,188 @@
-use core::panic;
-use std::ops::{Add, AddAssign, Rem, Sub};
-use std::str::FromStr;
+use std::ops::{AddAssign, Deref};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{available_parallelism, JoinHandle, spawn};
 
-use anyhow::anyhow;
-use k256::{ProjectivePoint, PublicKey, SecretKey};
+use anyhow::bail;
+use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
 use num_bigint::BigUint;
-use num_traits::{Num, One};
-use serde::{Deserialize, Serialize};
+use num_traits::ToBytes;
 
-trait PuzzleNumber {
-    fn is_valid(&self) -> bool;
-}
-
-impl PuzzleNumber for u8 {
-    fn is_valid(&self) -> bool {
-        *self >= 1 && *self <= 120
-    }
-}
-
-pub struct PuzzleManager<N: PuzzleNumber, T> {
-    puzzle: WorkingPuzzle<N>,
-    randomizer: Arc<GenericRandomizer<T>>,
-    events: Vec<Box<dyn Fn(Event) + 'static>>
-}
+use crate::puzzles::{PuzzleJson, PuzzleRange, Puzzles};
 
 pub enum Event {
-    SolutionFound,
-    ReportHashRate
+    SolutionFound(Solution),
+    SolutionNotFound,
 }
 
-impl<N: PuzzleNumber, T: RandomizerTrait> PuzzleManager<N, T> {
-    pub fn new(number: N, range: PuzzleRange, randomizer: T) -> Self {
-        Self {
-            puzzle: WorkingPuzzle {
-                number,
-                range
-            },
-            randomizer: Arc::new(GenericRandomizer::new(randomizer)),
-            events: vec![],
+pub struct PuzzleManager<T: Hasher + Sync + Send> {
+    puzzles: Puzzles,
+    randomizer: Arc<Utility<T>>,
+}
+
+impl<T: Hasher + Send + Sync + 'static> PuzzleManager<T> {
+    pub fn new(randomizer: T) -> anyhow::Result<Self> {
+        Ok(
+            Self {
+                puzzles: Puzzles::load()?,
+                randomizer: Arc::new(Utility::new(randomizer)),
+            }
+        )
+    }
+
+    pub fn start(&self, number: u8, notifier: impl Fn(Event) + Send + Sync + 'static) -> anyhow::Result<()> {
+        Ok(
+            self.get_worker_for_puzzle(number)?.work_forever(Arc::new(notifier))
+        )
+    }
+
+    pub fn get_worker_for_puzzle(&self, number: u8) -> anyhow::Result<Worker<T>> {
+        Worker::from_puzzle(
+            self.puzzles.get_puzzle(number),
+            self.randomizer.clone(),
+        )
+    }
+
+    pub fn start_all_cores(&self, number: u8, notifier: impl Fn(Event, Arc<AtomicBool>) + Send + Sync + 'static) -> anyhow::Result<()> {
+        let signal = Arc::new(AtomicBool::new(false));
+        let signal_notifier = signal.clone();
+
+        let notifier = Arc::new(move |event| notifier(event, signal_notifier.clone()));
+
+        if let Ok(cores) = available_parallelism() {
+            let handles: Vec<JoinHandle<()>> = (0..=cores.get())
+                .map(|_| {
+                    let mut worker = self.get_worker_for_puzzle(number).unwrap();
+                    let notifier = notifier.clone();
+                    let signal = signal.clone();
+
+                    spawn(move || { worker.work_with_signal(notifier, signal); })
+                })
+                .collect();
+
+            for handle in handles {
+                handle.join().expect("Failed to join thread");
+            }
         }
-    }
 
-    pub fn start(&mut self) {
-        let randomizer = self.randomizer.clone();
-        let mut worker = Worker {
-            range: String::from_str("4000:7fff").unwrap(),
-            ripemd160_address: [0; 20],
-            randomizer
-        };
-
-        worker.random_mode();
-    }
-
-    pub fn on_event(&mut self, callable: impl Fn(Event) + 'static) {
-        self.events.push(Box::new(callable))
+        Ok(())
     }
 }
 
-struct Worker<T> {
-    range: String,
-    ripemd160_address: [u8; 20],
-    randomizer: Arc<GenericRandomizer<T>>,
+struct Worker<T: Hasher> {
+    range: PuzzleRange,
+    increments: BigUint,
+    target: [u8; 20],
+    utility: Arc<Utility<T>>,
 }
 
-impl<T> Worker<T> where T: RandomizerTrait {
-    fn get_public_key(&self, private_key: &BigUint) -> anyhow::Result<PublicKey> {
-        let mut private_key_bytes = private_key.to_bytes_le();
-        private_key_bytes.resize(32, 0);
-        private_key_bytes.reverse();
+pub struct Solution(BigUint);
 
-        let secret = SecretKey::from_slice(&private_key_bytes)?;
+impl Deref for Solution {
+    type Target = BigUint;
 
-        Ok(secret.public_key())
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Solution {
+    pub fn to_hex(&self) -> String {
+        self.to_str_radix(16)
+    }
+}
+
+impl<T> Worker<T> where T: Hasher {
+    fn from_puzzle(challenge: PuzzleJson, utility: Arc<Utility<T>>) -> anyhow::Result<Self> {
+        Ok(
+            Self {
+                range: challenge.range()?,
+                target: challenge.target()?,
+                increments: BigUint::from(u16::MAX),
+                utility,
+            }
+        )
     }
 
-    fn random_in_range(&self, min: &BigUint, max: &BigUint) -> BigUint {
-        if min > max {
-            panic!("Invalid range: min should be less than or equal to max");
+    fn get_curve_point(&self, key: &BigUint) -> anyhow::Result<ProjectivePoint> {
+        let mut buffer = [0; 32];
+
+        for (index, byte) in key.to_le_bytes().into_iter().enumerate() {
+            buffer[32 - index - 1] = byte;
         }
 
-        let bits = (max.bits() / 8) as usize;
-        let random = BigUint::from_bytes_le(&self.randomizer.randomizer.random_buffer::<21>()[0..=bits]);
+        let point = SecretKey::from_slice(&buffer)?
+            .public_key()
+            .to_projective();
 
-        min.add(random.rem(max.sub(min).add(1u8)))
+        Ok(point)
     }
 
-    fn range(&self) -> (BigUint, BigUint) {
-        let range: Vec<BigUint> = self.range
-            .split(':')
-            .map(|value| BigUint::from_str_radix(value, 16).unwrap())
-            .collect();
-
-        (range[0].clone(), range[1].clone())
-    }
-
-    fn random_mode(&mut self) -> anyhow::Result<BigUint> {
-        let (low, high) = self.range();
-        let increments = BigUint::from(u16::MAX);
-
+    fn work_forever(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>) {
         loop {
-            let random = self.random_in_range(&low, &high);
-
-            let mut min = random;
-            let mut max = min.clone().add(&increments).min(high.clone());
-
-            if let Ok(private_key) = self.compute(&min, &max) {
-                return Ok(private_key);
+            if let Ok(solution) = self.compute() {
+                break notifier(Event::SolutionFound(Solution(solution)));
             }
         }
     }
 
-    fn compute(&mut self, min: &BigUint, max: &BigUint) -> anyhow::Result<BigUint> {
-        let mut counter = min.clone();
-        let mut public_key = self.get_public_key(&counter)?.to_projective();
+    fn work_with_signal(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>, signal: Arc<AtomicBool>) {
+        loop {
+            if signal.load(Ordering::Relaxed) {
+                break;
+            }
 
-        while counter <= *max {
-            let sha256: [u8; 32] = self.randomizer.randomizer.sha256(&public_key.to_bytes());
-            let ripemd160: [u8; 20] = self.randomizer.randomizer.ripemd160(&sha256);
+            if let Ok(solution) = self.compute() {
+                break notifier(Event::SolutionFound(Solution(solution)));
+            }
+        }
+    }
 
-            if self.ripemd160_address == ripemd160 {
+    fn compute(&self) -> anyhow::Result<BigUint> {
+        let (min, max) = self.range.random_between(&self.increments, self.utility.clone());
+
+        let mut counter = min;
+        let mut point = self.get_curve_point(&counter)?;
+
+        while counter <= max {
+            let sha256: [u8; 32] = self.utility.sha256(&point.to_bytes());
+            let ripemd160: [u8; 20] = self.utility.ripemd160(&sha256);
+
+            if self.target == ripemd160 {
                 return Ok(counter);
             }
 
-            public_key.add_assign(ProjectivePoint::GENERATOR);
-
-            counter = counter.add(BigUint::one());
+            point.add_assign(ProjectivePoint::GENERATOR);
+            counter.add_assign(1u8);
         }
 
-        Err(anyhow!("Solution not found..."))
+        bail!("Solution not found...")
     }
 }
 
-pub struct PuzzleRange {
-    pub min: BigUint,
-    pub max: BigUint
+#[derive(Debug)]
+pub struct Utility<T> {
+    internal: T,
 }
 
-pub struct WorkingPuzzle<N: PuzzleNumber> {
-    number: N,
-    range: PuzzleRange,
-}
+impl<T> Deref for Utility<T> {
+    type Target = T;
 
-// impl<N: PuzzleNumber> WorkingPuzzle<N> {
-//     fn new() -> Self {}
-// }
-
-pub struct Puzzle<T: RandomizerTrait> {
-    pub number: u8,
-    ripemd160_address: [u8; 20],
-    address: String,
-    range: String,
-    solution: Option<String>,
-    randomizer: GenericRandomizer<T>
-}
-
-pub struct GenericRandomizer<T> {
-    randomizer: T
-}
-
-impl<T> GenericRandomizer<T> {
-    pub fn new(randomizer: T) -> Self {
-        Self { randomizer }
+    fn deref(&self) -> &Self::Target {
+        &self.internal
     }
 }
 
-pub trait RandomizerTrait {
-    fn random_buffer<const N: usize>(&self) -> [u8; N];
+impl<T> Utility<T> {
+    pub fn new(internal: T) -> Self {
+        Self { internal }
+    }
+}
+
+pub trait Hasher {
+    fn random_bytes(&self, bytes: usize) -> Vec<u8>;
     fn sha256(&self, bytes: &[u8]) -> [u8; 32];
     fn ripemd160(&self, bytes: &[u8]) -> [u8; 20];
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct PuzzleJson {
-    number: u8,
-    address: String,
-    range: String,
-    private: Option<String>,
-}
-
-// impl<T: RandomizerTrait> Puzzle<T> {
-//     pub fn new(
-//         randomizer: GenericRandomizer<T>,
-//         number: u8,
-//         address: String,
-//         range: String,
-//         solution: Option<String>
-//     ) -> Puzzle<T> {
-//         let decoded = bs58::decode(address.clone()).into_vec().unwrap();
-//         let ripemd160_address: [u8; 20] = decoded[1..=20].try_into().unwrap();
-//
-//         Puzzle {
-//             randomizer,
-//             number,
-//             ripemd160_address,
-//             address,
-//             range,
-//             solution,
-//         }
-//     }
-//
-//     // pub fn number(data: usize) -> Puzzle {
-//     //     let puzzles = include_bytes!("./puzzles.json");
-//     //     let puzzles: Vec<PuzzleJson> = serde_json::from_slice(puzzles).unwrap();
-//     //     let data = puzzles.get(data - 1).unwrap();
-//     //
-//     //     Puzzle::from_json(data)
-//     // }
-//
-//     // pub fn from_json(data: &PuzzleJson) -> Puzzle {
-//     //     Puzzle::new(
-//     //         data.number.to_owned(),
-//     //         data.address.to_owned(),
-//     //         data.range.to_owned(),
-//     //         data.private.to_owned(),
-//     //     )
-//     // }
-//
-//     pub fn start(&mut self) -> anyhow::Result<BigUint> {
-//         println!("Starting puzzle #{} {:?}", self.number, self.address);
-//
-//         self.random_mode()
-//     }
-//
-//     fn range(&self) -> (BigUint, BigUint) {
-//         let range: Vec<BigUint> = self.range
-//             .split(':')
-//             .map(|value| BigUint::from_str_radix(value, 16).unwrap())
-//             .collect();
-//
-//         (range[0].clone(), range[1].clone())
-//     }
-//
-//     fn random_in_range(&self, min: &BigUint, max: &BigUint) -> BigUint {
-//         if min > max {
-//             panic!("Invalid range: min should be less than or equal to max");
-//         }
-//
-//         let bits = (max.bits() / 8) as usize;
-//         let random = BigUint::from_bytes_le(&self.randomizer.randomizer.random_buffer::<21>()[0..=bits]);
-//
-//         min.add(random.rem(max.sub(min).add(1u8)))
-//     }
-//
-//     pub fn random_mode(&mut self) -> anyhow::Result<BigUint> {
-//         let (low, high) = self.range();
-//         let increments = BigUint::from(u16::MAX);
-//
-//         loop {
-//             let random = self.random_in_range(&low, &high);
-//
-//             let mut min = random;
-//             let mut max = min.clone().add(&increments).min(high.clone());
-//
-//             println!("min: {:?} low: {:?} high: {:?}, diff: {:?}", min, low, max, max.clone().sub(min.clone()));
-//
-//             if let Ok(private_key) = self.compute(&min, &max) {
-//                 return Ok(private_key);
-//             }
-//         }
-//     }
-//
-//     fn get_public_key(&self, private_key: &BigUint) -> anyhow::Result<PublicKey> {
-//         let mut private_key_bytes = private_key.to_bytes_le();
-//         private_key_bytes.resize(32, 0);
-//         private_key_bytes.reverse();
-//
-//         let secret = SecretKey::from_slice(&private_key_bytes)?;
-//
-//         Ok(secret.public_key())
-//     }
-//
-//     fn compute(&mut self, min: &BigUint, max: &BigUint) -> anyhow::Result<BigUint> {
-//         let mut counter = min.clone();
-//         let mut public_key = self.get_public_key(&counter)?.to_projective();
-//
-//         while counter <= *max {
-//             let sha256: [u8; 32] = self.randomizer.randomizer.sha256(&public_key.to_bytes());
-//             let ripemd160: [u8; 20] = self.randomizer.randomizer.ripemd160(&sha256);
-//
-//             if self.ripemd160_address == ripemd160 {
-//                 println!("Found Solution: {:?}", counter.to_str_radix(16));
-//                 return Ok(counter);
-//             }
-//
-//             public_key.add_assign(ProjectivePoint::GENERATOR);
-//
-//             counter = counter.add(BigUint::one());
-//
-//             // FreeRtos::delay_ms(1);
-//         }
-//
-//         Err(anyhow!("Solution not found..."))
-//     }
-// }
