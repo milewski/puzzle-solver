@@ -8,6 +8,4 @@ shared = { path = "../shared" }
 anyhow = "^1.0.81"
 rand = "0.8.5"
 bitcoin = "^0.31.1"
-
-[profile.release]
-opt-level = 3
+rayon = "1.9.0"

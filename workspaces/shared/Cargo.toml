@@ -12,3 +12,5 @@ num-bigint = "^0.4.4"
 num-traits = "^0.2.18"
 k256 = "^0.13.3"
 embedded-hal = { version = "^0.2.7", features = ["unproven"] }
+rayon = "1.9.0"
+human_format = "1.1.0"

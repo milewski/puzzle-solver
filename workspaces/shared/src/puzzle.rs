@@ -1,17 +1,18 @@
-use std::ops::{AddAssign, Deref};
-use std::sync::Arc;
+use std::ops::{Add, AddAssign, Deref, Sub};
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{available_parallelism, JoinHandle, spawn};
 
 use anyhow::bail;
-use embedded_hal::blocking::delay;
-use embedded_hal::blocking::delay::{DelayMs, DelayUs};
+use embedded_hal::blocking::delay::DelayUs;
 use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
 use num_bigint::BigUint;
-use num_traits::ToBytes;
+use num_traits::{ToBytes, ToPrimitive};
+use rayon::prelude::*;
 
 use crate::puzzles::{PuzzleJson, PuzzleRange, Puzzles};
+use crate::reporter::Reporter;
 
 pub enum Event {
     SolutionFound(Solution),
@@ -20,6 +21,7 @@ pub enum Event {
 
 pub struct PuzzleManager<T: Hasher + Sync + Send> {
     puzzles: Puzzles,
+    reporter: Arc<Mutex<Reporter>>,
     randomizer: Arc<Utility<T>>,
 }
 
@@ -28,6 +30,7 @@ impl<T: Hasher + Send + Sync + 'static> PuzzleManager<T> {
         Ok(
             Self {
                 puzzles: Puzzles::load()?,
+                reporter: Reporter::new(),
                 randomizer: Arc::new(Utility::new(randomizer)),
             }
         )
@@ -51,6 +54,7 @@ impl<T: Hasher + Send + Sync + 'static> PuzzleManager<T> {
         Worker::from_puzzle(
             self.puzzles.get_puzzle(number),
             self.randomizer.clone(),
+            self.reporter.clone(),
         )
     }
 
@@ -87,6 +91,7 @@ enum Platform {
 
 struct Worker<T: Hasher> {
     range: PuzzleRange,
+    reporter: Arc<Mutex<Reporter>>,
     increments: BigUint,
     target: [u8; 20],
     utility: Arc<Utility<T>>,
@@ -118,13 +123,14 @@ impl Solution {
     }
 }
 
-impl<T> Worker<T> where T: Hasher {
-    fn from_puzzle(challenge: PuzzleJson, utility: Arc<Utility<T>>) -> anyhow::Result<Self> {
+impl<T> Worker<T> where T: Hasher + Send + Sync {
+    fn from_puzzle(challenge: PuzzleJson, utility: Arc<Utility<T>>, reporter: Arc<Mutex<Reporter>>) -> anyhow::Result<Self> {
         Ok(
             Self {
                 range: challenge.range()?,
                 target: challenge.target()?,
                 increments: BigUint::from(u16::MAX),
+                reporter,
                 utility,
             }
         )
@@ -146,7 +152,7 @@ impl<T> Worker<T> where T: Hasher {
 
     fn work_embedded(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>, delay: &mut Platform) {
         loop {
-            if let Ok(solution) = self.compute(delay) {
+            if let Ok(solution) = self.compute_parallel(delay) {
                 break notifier(Event::SolutionFound(Solution(solution)));
             }
         }
@@ -154,7 +160,7 @@ impl<T> Worker<T> where T: Hasher {
 
     fn work_forever(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>) {
         loop {
-            if let Ok(solution) = self.compute(&mut Platform::Desktop) {
+            if let Ok(solution) = self.compute_parallel(&mut Platform::Desktop) {
                 break notifier(Event::SolutionFound(Solution(solution)));
             }
         }
@@ -166,17 +172,65 @@ impl<T> Worker<T> where T: Hasher {
                 break;
             }
 
-            if let Ok(solution) = self.compute(&mut Platform::Desktop) {
+            if let Ok(solution) = self.compute_parallel(&mut Platform::Desktop) {
                 break notifier(Event::SolutionFound(Solution(solution)));
             }
         }
     }
 
+    fn compute_parallel(&self, platform: &mut Platform) -> anyhow::Result<BigUint> {
+        let (min, max) = self.range.random_between(&self.increments, self.utility.clone());
+
+        let mut counter = min.clone();
+        let mut point = self.get_curve_point(&counter)?;
+
+        let mut keys = Vec::with_capacity(self.increments.to_usize().unwrap());
+
+        while counter <= max {
+            point.add_assign(ProjectivePoint::GENERATOR);
+            keys.push(point.to_bytes());
+            counter.add_assign(1u8);
+        }
+
+        let solution: Option<BigUint> = keys
+            .into_par_iter()
+            .enumerate()
+            .map(|(index, point)| {
+
+                // match platform {
+                //     Platform::Desktop => {}
+                //     Platform::Embedded(delay) => delay.delay_us(1)
+                // }
+
+                let sha256: [u8; 32] = self.utility.sha256(&point);
+                let ripemd160: [u8; 20] = self.utility.ripemd160(&sha256);
+
+                if self.target == ripemd160 {
+                    Some(min.clone().add(index + 1))
+                } else {
+                    None
+                }
+            })
+            .find_map_first(|solution| solution)
+            .take();
+
+        if let (Ok(mut logger), Some(count)) = (self.reporter.lock(), max.sub(min).to_u64()) {
+            logger.update(count)
+        }
+
+        if let Some(solution) = solution {
+            return Ok(solution)
+        }
+
+        bail!("Solution not found...")
+    }
+
     fn compute(&self, platform: &mut Platform) -> anyhow::Result<BigUint> {
         let (min, max) = self.range.random_between(&self.increments, self.utility.clone());
 
-        let mut counter = min;
+        let mut counter = min.clone();
         let mut point = self.get_curve_point(&counter)?;
+        let difference = (&max).sub(min).to_u64();
 
         while counter <= max {
             match platform {
@@ -188,11 +242,19 @@ impl<T> Worker<T> where T: Hasher {
             let ripemd160: [u8; 20] = self.utility.ripemd160(&sha256);
 
             if self.target == ripemd160 {
+                if let (Ok(mut reporter), Some(count)) = (self.reporter.lock(), difference) {
+                    reporter.update(count);
+                }
+
                 return Ok(counter);
             }
 
             point.add_assign(ProjectivePoint::GENERATOR);
             counter.add_assign(1u8);
+        }
+
+        if let (Ok(mut reporter), Some(count)) = (self.reporter.lock(), difference) {
+            reporter.update(count);
         }
 
         bail!("Solution not found...")
