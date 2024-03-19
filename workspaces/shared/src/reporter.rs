@@ -14,7 +14,7 @@ impl Reporter {
         Arc::new(Mutex::new(Self {
             rate: 0,
             report_at: Instant::now(),
-            interval: Duration::from_secs(1),
+            interval: Duration::from_secs(10),
         }))
     }
 

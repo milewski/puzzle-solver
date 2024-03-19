@@ -206,7 +206,7 @@ impl<T> Worker<T> where T: Hasher + Send + Sync {
                 let ripemd160: [u8; 20] = self.utility.ripemd160(&sha256);
 
                 if self.target == ripemd160 {
-                    Some(min.clone().add(index + 1))
+                    Some((&min).add(index + 1))
                 } else {
                     None
                 }
