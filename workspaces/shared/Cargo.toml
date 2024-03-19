@@ -10,7 +10,7 @@ serde = { version = "^1.0.197", features = ["derive"] }
 bs58 = "^0.5.0"
 num-bigint = "^0.4.4"
 num-traits = "^0.2.18"
-k256 = "^0.13.3"
+k256 = { version = "^0.13.3", features = ["precomputed-tables"] }
 embedded-hal = { version = "^0.2.7", features = ["unproven"] }
 rayon = "1.9.0"
 human_format = "1.1.0"

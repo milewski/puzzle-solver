@@ -14,8 +14,10 @@ lazy_static! {
     static ref N: BigInt = BigInt::from_str_radix("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16).unwrap();
     static ref P: BigInt = BigInt::from_str_radix("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16).unwrap();
 
-    static ref G: Point = Point { x: GX.clone(), y: GY.clone(), z: BigInt::one() };
+    pub static ref G: Point = Point { x: GX.clone(), y: GY.clone(), z: BigInt::one() };
     static ref I: Point = Point { x: BigInt::zero(), y: BigInt::one(), z: BigInt::zero() };
+
+    static ref COMPUTED: Vec<Point> = precompute();
 }
 
 struct Curve {
@@ -41,14 +43,14 @@ impl Curve {
 }
 
 #[derive(Debug, Clone)]
-struct Point {
+pub struct Point {
     x: BigInt,
     y: BigInt,
     z: BigInt,
 }
 
 impl Point {
-    fn add(&self, point: &Point) -> Point {
+    pub fn add(&self, point: &Point) -> Point {
         let x1 = self.x.clone();
         let y1 = self.y.clone();
         let z1 = self.z.clone();
@@ -123,13 +125,13 @@ impl Point {
         self.add(&self)
     }
 
-    fn mul(&self, mut n: BigInt) -> Point {
+    pub fn mul(&self, mut n: BigInt) -> Point {
         if n == BigInt::zero() {
             return I.clone();
         }
 
         if self.equals(&G) {
-            println!("cache...")
+            return wNAF(n).0;
         }
 
         let mut p = I.clone();
@@ -147,7 +149,7 @@ impl Point {
         p
     }
 
-    fn from_private_key(private_key: BigInt) -> Point {
+    pub fn from_private_key(private_key: BigInt) -> Point {
         G.mul(private_key)
     }
 
@@ -176,14 +178,31 @@ impl Point {
         }
     }
 
-    fn to_hex(&self) -> String {
+    pub fn to_hex(&self) -> String {
         let (x, y) = self.to_affine();
         let head = if (y & BigInt::one()) == BigInt::zero() { "02" } else { "03" };
 
         format!("{}{}", head, x.to_str_radix(16))
     }
 
-    fn to_affine(&self) -> (BigInt, BigInt) {
+    pub fn to_bytes(&self) -> [u8; 33] {
+        let (x, y) = self.to_affine();
+        let head = if (&y & &BigInt::one()) == BigInt::zero() { 0x02 } else { 0x03 };
+
+        let mut bytes = [0; 33];
+
+        bytes[0] = head;
+
+        let (_, x_bytes) = x.to_bytes_be();
+
+        for (index, x_byte) in x_bytes.into_iter().enumerate() {
+            bytes[index + 1] = x_byte;
+        }
+
+        bytes
+    }
+
+    pub fn to_affine(&self) -> (BigInt, BigInt) {
         if self.equals(&I) {
             return (BigInt::zero(), BigInt::zero());
         }
@@ -265,7 +284,7 @@ fn precompute() -> Vec<Point> {
 }
 
 fn wNAF(mut n: BigInt) -> (Point, Point) {
-    let comp = precompute();
+    let comp = &COMPUTED;
 
     let W: u32 = 8;
     let mut p = I.clone();
@@ -273,22 +292,24 @@ fn wNAF(mut n: BigInt) -> (Point, Point) {
 
     let windows = 1 + 256 / W;
     let wsize = 2u32.pow(W - 1);
-    let mask = BigInt::from(2u32.pow(W - 1));
+    let mask = BigInt::from(2u32.pow(W) - 1);
     let maxNum = 2u32.pow(W);
     let shiftBy = W;
 
     for w in 0..windows {
         let off = w * wsize;
         let mut wbits = &n & &mask;
+
         n >>= shiftBy;
 
         if wbits > BigInt::from(wsize) {
             wbits -= maxNum;
             n += BigInt::one();
-        }    //
+        }
 
         let off1 = off;
         let off2: BigInt = off + wbits.abs() - 1;
+
         let cnd1 = w % 2 != 0;
         let cnd2 = wbits < BigInt::zero();
 
@@ -313,9 +334,7 @@ fn neg(cnd: bool, p: &Point) -> Point {
 
 fn main() {
 
-
     // println!("{:#?}", a.mul(BigInt::from(2000000000000u64)))
 
     // println!("{:#?}", Point::from_private_key(BigInt::one()).to_hex());
-    println!("{:#?}", wNAF(BigInt::one()));
 }
