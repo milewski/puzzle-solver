@@ -2,19 +2,20 @@ extern crate lazy_static;
 extern crate num_bigint;
 extern crate num_traits;
 
-use std::ops::{Add, BitAnd, BitOr, Mul, Sub};
+use std::ops::{Add, Mul};
+
 use lazy_static::lazy_static;
-use num_bigint::{BigInt, BigUint};
-use num_traits::{Num, One, Zero};
+use num_bigint::BigInt;
+use num_traits::{Num, One, Signed, ToPrimitive, Zero};
 
 lazy_static! {
-    static ref GX: BigInt = BigInt::from_str_radix("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", 16).unwrap();
-    static ref GY: BigInt = BigInt::from_str_radix("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8", 16).unwrap();
+    static ref GX: BigInt = BigInt::from_str_radix("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", 16).unwrap();
+    static ref GY: BigInt = BigInt::from_str_radix("483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", 16).unwrap();
     static ref N: BigInt = BigInt::from_str_radix("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16).unwrap();
     static ref P: BigInt = BigInt::from_str_radix("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", 16).unwrap();
 
-    static ref G: Point = Point{ x: GX.clone(), y: GY.clone(), z: BigInt::one() };
-    static ref I: Point = Point{ x: BigInt::zero(), y: BigInt::one(), z: BigInt::zero() };
+    static ref G: Point = Point { x: GX.clone(), y: GY.clone(), z: BigInt::one() };
+    static ref I: Point = Point { x: BigInt::zero(), y: BigInt::one(), z: BigInt::zero() };
 }
 
 struct Curve {
@@ -167,14 +168,22 @@ impl Point {
         x1z2 == x2z1 && y1z2 == y2z1
     }
 
+    fn negate(&self) -> Point {
+        Self {
+            x: self.x.clone(),
+            y: modx(&-self.y.clone(), None),
+            z: self.z.clone(),
+        }
+    }
+
     fn to_hex(&self) -> String {
-        let (x, y) = self.toAffine();
+        let (x, y) = self.to_affine();
         let head = if (y & BigInt::one()) == BigInt::zero() { "02" } else { "03" };
 
         format!("{}{}", head, x.to_str_radix(16))
     }
 
-    fn toAffine(&self) -> (BigInt, BigInt) {
+    fn to_affine(&self) -> (BigInt, BigInt) {
         if self.equals(&I) {
             return (BigInt::zero(), BigInt::zero());
         }
@@ -232,21 +241,81 @@ fn modx(a: &BigInt, b: Option<&BigInt>) -> BigInt {
     }
 }
 
+fn precompute() -> Vec<Point> {
+    let w = 8;
+    let mut points: Vec<Point> = vec![];
+    let windows = 256 / w + 1;
+
+    let mut p = G.clone();
+    let mut b = p.clone();
+
+    for _ in 0..windows {
+        b = p.clone();                                              // any time Gx multiplication is done.
+        points.push(b.clone());
+
+        for _ in 1..(1 << (w - 1)) {
+            b = b.add(&p);
+            points.push(b.clone());
+        }
+
+        p = b.double();
+    }
+
+    points
+}
+
+fn wNAF(mut n: BigInt) -> (Point, Point) {
+    let comp = precompute();
+
+    let W: u32 = 8;
+    let mut p = I.clone();
+    let mut f = G.clone();
+
+    let windows = 1 + 256 / W;
+    let wsize = 2u32.pow(W - 1);
+    let mask = BigInt::from(2u32.pow(W - 1));
+    let maxNum = 2u32.pow(W);
+    let shiftBy = W;
+
+    for w in 0..windows {
+        let off = w * wsize;
+        let mut wbits = &n & &mask;
+        n >>= shiftBy;
+
+        if wbits > BigInt::from(wsize) {
+            wbits -= maxNum;
+            n += BigInt::one();
+        }    //
+
+        let off1 = off;
+        let off2: BigInt = off + wbits.abs() - 1;
+        let cnd1 = w % 2 != 0;
+        let cnd2 = wbits < BigInt::zero();
+
+        if (wbits == BigInt::zero()) {
+            f = f.add(&neg(cnd1, comp.get(off1 as usize).unwrap()));                 // bits are 0: add garbage to fake point
+        } else {
+            let usize_off2: usize = off2.to_usize().unwrap();
+            p = p.add(&neg(cnd2, comp.get(usize_off2).unwrap()));                 // bits are 1: add to result point
+        }
+    }
+
+    (p, f)
+}
+
+fn neg(cnd: bool, p: &Point) -> Point {
+    if cnd {
+        p.negate()
+    } else {
+        p.clone()
+    }
+}
 
 fn main() {
-    let a = Point {
-        y: BigInt::one(),
-        x: BigInt::one(),
-        z: BigInt::one(),
-    };
 
-    let b = Point {
-        y: BigInt::one(),
-        x: BigInt::one(),
-        z: BigInt::one(),
-    };
 
     // println!("{:#?}", a.mul(BigInt::from(2000000000000u64)))
 
-    println!("{:#?}", Point::from_private_key(BigInt::one()).to_hex());
+    // println!("{:#?}", Point::from_private_key(BigInt::one()).to_hex());
+    println!("{:#?}", wNAF(BigInt::one()));
 }
