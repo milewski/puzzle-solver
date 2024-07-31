@@ -1,5 +1,17 @@
-[workspace]
-resolver = "2"
-members = [
-    "workspaces/*",
-]
+[package]
+name = "desktop"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rand = "^0.8.5"
+bitcoin = "^0.32.2"
+anyhow = "^1.0.81"
+serde_json = "^1.0.114"
+serde = { version = "^1.0.197", features = ["derive"] }
+bs58 = "^0.5.1"
+num-bigint = "^0.4.6"
+num-traits = "^0.2.19"
+k256 = { version = "^0.14.0-pre.0", features = ["precomputed-tables"] }
+rayon = "1.10.0"
+human_format = "1.1.0"

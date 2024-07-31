@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use human_format::Formatter;
 
+#[derive(Clone, Copy)]
 pub struct Reporter {
     rate: u64,
     interval: Duration,
@@ -10,11 +11,19 @@ pub struct Reporter {
 }
 
 impl Reporter {
+    pub fn clean() -> Self {
+        Self {
+            rate: 0,
+            report_at: Instant::now(),
+            interval: Duration::from_secs(60),
+        }
+    }
+
     pub fn new() -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self {
             rate: 0,
             report_at: Instant::now(),
-            interval: Duration::from_secs(10),
+            interval: Duration::from_secs(60),
         }))
     }
 
