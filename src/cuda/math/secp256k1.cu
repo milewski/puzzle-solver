@@ -81,128 +81,6 @@ __device__ static bool equal(const unsigned int* a, const unsigned int* b)
 }
 
 /**
- * Reads an 8-word big integer from device memory
- */
-#ifdef VECTORIZED_MEMORY_ACCESS
-__device__ static void readInt(unsigned int* ara, int idx, unsigned int x[8])
-{
-	uint4* araTmp = reinterpret_cast<uint4*>(ara);
-
-	unsigned int totalThreads = gridDim.x * blockDim.x;
-	unsigned int base = idx * totalThreads * 2;
-	unsigned int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-	unsigned int index = base + threadId;
-
-	uint4 xTmp = araTmp[index];
-	x[0] = xTmp.x;
-	x[1] = xTmp.y;
-	x[2] = xTmp.z;
-	x[3] = xTmp.w;
-
-	index += totalThreads;
-
-	xTmp = araTmp[index];
-	x[4] = xTmp.x;
-	x[5] = xTmp.y;
-	x[6] = xTmp.z;
-	x[7] = xTmp.w;
-}
-#else
-__device__ static void readInt(const unsigned int* ara, int idx, unsigned int x[8])
-{
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
-	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-
-	int index = base + threadId;
-
-	for (int i = 0; i < 8; i++) {
-		x[i] = ara[index];
-		index += totalThreads;
-	}
-}
-#endif // VECTORIZED_MEMORY_ACCESS
-
-#ifdef VECTORIZED_MEMORY_ACCESS
-__device__ static unsigned int readIntLSW(unsigned int* ara, int idx)
-{
-	uint4* araTmp = reinterpret_cast<uint4*>(ara);
-
-	unsigned int totalThreads = gridDim.x * blockDim.x;
-	unsigned int base = idx * totalThreads * 2;
-	unsigned int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-	unsigned int index = base + threadId;
-
-	index += totalThreads;
-
-	uint4 xTmp = araTmp[index];
-
-	return xTmp.w;
-}
-#else
-__device__ static unsigned int readIntLSW(const unsigned int* ara, int idx)
-{
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
-	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-
-	int index = base + threadId;
-
-	return ara[index + totalThreads * 7];
-}
-#endif // VECTORIZED_MEMORY_ACCESS
-
-/**
- * Writes an 8-word big integer to device memory
- */
-#ifdef VECTORIZED_MEMORY_ACCESS
-__device__ static void writeInt(unsigned int* ara, int idx, const unsigned int x[8])
-{
-	uint4* araTmp = reinterpret_cast<uint4*>(ara);
-
-	unsigned int totalThreads = gridDim.x * blockDim.x;
-	unsigned int base = idx * totalThreads * 2;
-	unsigned int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-	unsigned int index = base + threadId;
-
-	uint4 xTmp;
-	xTmp.x = x[0];
-	xTmp.y = x[1];
-	xTmp.z = x[2];
-	xTmp.w = x[3];
-	araTmp[index] = xTmp;
-
-	index += totalThreads;
-
-	xTmp.x = x[4];
-	xTmp.y = x[5];
-	xTmp.z = x[6];
-	xTmp.w = x[7];
-	araTmp[index] = xTmp;
-}
-#else
-__device__ static void writeInt(unsigned int* ara, int idx, const unsigned int x[8])
-{
-	int totalThreads = gridDim.x * blockDim.x;
-
-	int base = idx * totalThreads * 8;
-
-	int threadId = blockDim.x * blockIdx.x + threadIdx.x;
-
-	int index = base + threadId;
-
-	for (int i = 0; i < 8; i++) {
-		ara[index] = x[i];
-		index += totalThreads;
-	}
-}
-#endif // VECTORIZED_MEMORY_ACCESS
-
-/**
  * Subtraction mod p
  */
 __device__ static void subModP(const unsigned int a[8], const unsigned int b[8], unsigned int c[8])
@@ -713,186 +591,31 @@ __device__ static void negModP(const unsigned int* value, unsigned int* negative
 	subc(negative[7], _P[7], value[7]);
 }
 
-
-__device__ __forceinline__ static void beginBatchAdd(const unsigned int* px, const unsigned int* x, unsigned int* chain, int i, int batchIdx, unsigned int inverse[8])
-{
-	// x = Gx - x
-	unsigned int t[8];
-	subModP(px, x, t);
-
-	// Keep a chain of multiples of the diff, i.e. c[0] = diff0, c[1] = diff0 * diff1,
-	// c[2] = diff2 * diff1 * diff0, etc
-	mulModP(t, inverse);
-
-	writeInt(chain, batchIdx, inverse);
+__device__ int countSetBits(unsigned int n) {
+    int count = 0;
+    while (n) {
+        count += n & 1;
+        n >>= 1;
+    }
+    return count;
 }
 
-
-__device__ __forceinline__ static void beginBatchAddWithDouble(const unsigned int* px, const unsigned int* py, unsigned int* xPtr, unsigned int* chain, int i, int batchIdx, unsigned int inverse[8])
-{
-	unsigned int x[8];
- 	readInt(xPtr, i, x);
-
-	if (equal(px, x)) {
-		addModP(py, py, x);
-	}
-	else {
-		// x = Gx - x
-		subModP(px, x, x);
-	}
-
-	// Keep a chain of multiples of the diff, i.e. c[0] = diff0, c[1] = diff0 * diff1,
-	// c[2] = diff2 * diff1 * diff0, etc
-	mulModP(x, inverse);
-
-// 	writeInt(chain, batchIdx, inverse);
-}
-#ifdef VECTORIZED_MEMORY_ACCESS
-__device__ static void completeBatchAddWithDouble(const unsigned int* px, const unsigned int* py, unsigned int* xPtr, unsigned int* yPtr, int i, int batchIdx, unsigned int* chain, unsigned int* inverse, unsigned int newX[8], unsigned int newY[8])
-#else
-__device__ static void completeBatchAddWithDouble(const unsigned int* px, const unsigned int* py, const unsigned int* xPtr, const unsigned int* yPtr, int i, int batchIdx, unsigned int* chain, unsigned int* inverse, unsigned int newX[8], unsigned int newY[8])
-#endif // VECTORIZED_MEMORY_ACCESS
-{
-	unsigned int s[8];
-	unsigned int x[8];
-	unsigned int y[8];
-
-	readInt(xPtr, i, x);
-	readInt(yPtr, i, y);
-
-	if (batchIdx >= 1) {
-		unsigned int c[8];
-
-// 		readInt(chain, batchIdx - 1, c);
-
-		mulModP(inverse, c, s);
-
-		unsigned int diff[8];
-		if (equal(px, x)) {
-			addModP(py, py, diff);
-		}
-		else {
-			subModP(px, x, diff);
-		}
-
-		mulModP(diff, inverse);
-	}
-	else {
-		copyBigInt(inverse, s);
-	}
-
-
-	if (equal(px, x)) {
-		// currently s = 1 / 2y
-
-		unsigned int x2[8];
-		unsigned int tx2[8];
-
-		// 3x^2
-		mulModP(x, x, x2);
-		addModP(x2, x2, tx2);
-		addModP(x2, tx2, tx2);
-
-
-		// s = 3x^2 * 1/2y
-		mulModP(tx2, s);
-
-		// s^2
-		unsigned int s2[8];
-		mulModP(s, s, s2);
-
-		// Rx = s^2 - 2px
-		subModP(s2, x, newX);
-		subModP(newX, x, newX);
-
-		// Ry = s(px - rx) - py
-		unsigned int k[8];
-		subModP(px, newX, k);
-		mulModP(s, k, newY);
-		subModP(newY, py, newY);
-
-	}
-	else {
-
-		unsigned int rise[8];
-		subModP(py, y, rise);
-
-		mulModP(rise, s);
-
-		// Rx = s^2 - Gx - Qx
-		unsigned int s2[8];
-		mulModP(s, s, s2);
-
-		subModP(s2, px, newX);
-		subModP(newX, x, newX);
-
-		// Ry = s(px - rx) - py
-		unsigned int k[8];
-		subModP(px, newX, k);
-		mulModP(s, k, newY);
-		subModP(newY, py, newY);
-	}
-}
-
-__device__ static void completeBatchAdd(const unsigned int* px, const unsigned int* py, unsigned int* xPtr, unsigned int* yPtr, int i, int batchIdx, unsigned int* chain, unsigned int* inverse, unsigned int newX[8], unsigned int newY[8])
-{
-	unsigned int s[8];
-	unsigned int x[8];
-
-	readInt(xPtr, i, x);
-
-	if (batchIdx >= 1) {
-		unsigned int c[8];
-
-		readInt(chain, batchIdx - 1, c);
-		mulModP(inverse, c, s);
-
-		unsigned int diff[8];
-		subModP(px, x, diff);
-		mulModP(diff, inverse);
-	}
-	else {
-		copyBigInt(inverse, s);
-	}
-
-	unsigned int y[8];
-	readInt(yPtr, i, y);
-
-	unsigned int rise[8];
-	subModP(py, y, rise);
-
-	mulModP(rise, s);
-
-	// Rx = s^2 - Gx - Qx
-	unsigned int s2[8];
-	mulModP(s, s, s2);
-	subModP(s2, px, newX);
-	subModP(newX, x, newX);
-
-	// Ry = s(px - rx) - py
-	unsigned int k[8];
-	subModP(px, newX, k);
-	mulModP(s, k, newY);
-	subModP(newY, py, newY);
-}
-
-
-__device__ __forceinline__ static void doBatchInverse(unsigned int inverse[8])
-{
-	invModP(inverse);
+__device__ int check_parity(const unsigned int *n) {
+        return (n[7] & 1);
 }
 
 __device__ void hashPublicKey(const unsigned int* x, const unsigned int* y, unsigned int* digestOut)
 {
 	unsigned int hash[8];
 
-	sha256PublicKeyCompressed(x, readIntLSW(y, 0), hash);
+	sha256PublicKeyCompressed(x, check_parity(y), hash);
 
 	for (int i = 0; i < 8; i++) {
 		hash[i] = endian(hash[i]);
 	}
 
 	ripemd160sha256(hash, digestOut);
+
 }
 
 struct Solution {
@@ -900,8 +623,79 @@ struct Solution {
     unsigned int index;
 };
 
-extern "C" __global__ void demo(unsigned int *points, unsigned int *target, Solution *result, unsigned int *output) {
+__device__ __forceinline__ static void process(const unsigned int* px, const unsigned int* py, unsigned int* xPtr, unsigned int* yPtr, unsigned int* inverse, unsigned int newX[8], unsigned int newY[8])
+{
+	unsigned int x[8];
+    unsigned int s[8];
+    unsigned int y[8];
 
+ 	copyBigInt(xPtr, x);
+
+	if (equal(px, x)) {
+		addModP(py, py, x);
+	} else {
+		subModP(px, x, x);
+	}
+
+	mulModP(x, inverse);
+    invModP(inverse);
+
+    copyBigInt(xPtr, x);
+    copyBigInt(yPtr, y);
+
+    copyBigInt(inverse, s);
+
+    if (equal(px, x)) {
+        // currently s = 1 / 2y
+
+        unsigned int x2[8];
+        unsigned int tx2[8];
+
+        // 3x^2
+        mulModP(x, x, x2);
+        addModP(x2, x2, tx2);
+        addModP(x2, tx2, tx2);
+
+        // s = 3x^2 * 1/2y
+        mulModP(tx2, s);
+
+        // s^2
+        unsigned int s2[8];
+        mulModP(s, s, s2);
+
+        // Rx = s^2 - 2px
+        subModP(s2, x, newX);
+        subModP(newX, x, newX);
+
+        // Ry = s(px - rx) - py
+        unsigned int k[8];
+        subModP(px, newX, k);
+        mulModP(s, k, newY);
+        subModP(newY, py, newY);
+
+    } else {
+
+        unsigned int rise[8];
+        subModP(py, y, rise);
+
+        mulModP(rise, s);
+
+        // Rx = s^2 - Gx - Qx
+        unsigned int s2[8];
+        mulModP(s, s, s2);
+
+        subModP(s2, px, newX);
+        subModP(newX, x, newX);
+
+        // Ry = s(px - rx) - py
+        unsigned int k[8];
+        subModP(px, newX, k);
+        mulModP(s, k, newY);
+        subModP(newY, py, newY);
+    }
+}
+
+extern "C" __global__ void demo(unsigned int *points, unsigned int *target, Solution *result, unsigned int *increments, unsigned int *output) {
 
     unsigned int x[8];
     unsigned int y[8];
@@ -922,18 +716,19 @@ extern "C" __global__ void demo(unsigned int *points, unsigned int *target, Solu
 
     unsigned int out[8];
 
-     for (int i = 0; i < 100000; i++) {
+     for (int i = 0; i < *increments; i++) {
+
+         if (result->index != 0 || result->thread != 0) {
+            break;
+         }
 
          unsigned int inverse[8] = {0,0,0,0,0,0,0,1};
 
-         beginBatchAddWithDouble(_GX, _GY, x, 0, idx, 0, inverse);
-         doBatchInverse(inverse);
-         completeBatchAddWithDouble(_GX, _GY, x, y, idx, 0, 0, inverse, x, y);
+         process(_GX, _GY, x, y, inverse, x, y);
 
          hashPublicKey(x, y, out);
 
          if (equal(out, target)) {
-            printf("found");
             result->index = (unsigned int)i;
             result->thread = idx;
             break;

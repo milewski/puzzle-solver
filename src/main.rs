@@ -9,7 +9,7 @@ use k256::elliptic_curve::point::AffineCoordinates;
 use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use num_bigint::BigUint;
-use num_traits::{FromPrimitive, ToBytes, Zero};
+use num_traits::{FromPrimitive, ToBytes, ToPrimitive, Zero};
 use rand::RngCore;
 
 use crate::puzzle::{PuzzleManager, Utility};
@@ -83,23 +83,30 @@ fn main() -> anyhow::Result<()> {
     //         break println!("{:?}", solution.to_hex());
     //     }
     // }
-    let threads = 1;
-    let blocks = 1;
+    let threads = 128;
+    let blocks = 128;
     let randomizer = Arc::new(Utility::new(Randomizer {}));
     let puzzle = Puzzles::new();
-    let puzzle = puzzle.get(15).unwrap();
+    let puzzle = puzzle.get(66).unwrap();
     let range = puzzle.range().unwrap();
     let target = puzzle.target().unwrap();
+    let increments = BigUint::from(500000u32);
 
     'outer: loop {
         let mut batches = vec![];
-        let increments = BigUint::from(0x10000u32);
 
         for thread in 0..(threads * blocks) {
             let (key, _) = range.random_between(&increments, randomizer.clone());
+
+            // let key = BigUint::from(0xe9ae4930d6u64); //40
+            // let key = BigUint::from(0xd2055u32); //20
+            // let key = BigUint::from(0x1fa0ee5u32); //25
+
             batches.push(key);
             // batches.push(BigUint::from(thread))
         }
+
+        println!("{:?}", batches.len());
 
         let mut flatten = vec![];
 
@@ -118,9 +125,12 @@ fn main() -> anyhow::Result<()> {
 
         // println!("{:02x?}", points);
 
+        let increments = increments.to_u32().unwrap();
+
         let points: CudaSlice<_> = dev.htod_sync_copy(&flatten)?;
         // let x: CudaSlice<_> = dev.htod_sync_copy(&x)?;
         // let y: CudaSlice<_> = dev.htod_sync_copy(&y)?;
+        let increments: CudaSlice<u32> = dev.htod_sync_copy(&[increments])?;
         let target: CudaSlice<_> = dev.htod_sync_copy(&target)?;
         let mut output: CudaSlice<_> = dev.alloc_zeros::<u8>(32)?;
 
@@ -142,8 +152,7 @@ fn main() -> anyhow::Result<()> {
             shared_mem_bytes: 0,
         };
 
-
-        unsafe { hash_function.launch(cfg, (&points, &target, &mut counter, &mut output,)) }?;
+        unsafe { hash_function.launch(cfg, (&points, &target, &mut counter, &increments, &mut output,)) }?;
 
         let result = dev.dtoh_sync_copy(&counter)?;
         let output = dev.dtoh_sync_copy(&output)?;
@@ -161,8 +170,6 @@ fn main() -> anyhow::Result<()> {
         // if result.is_zero() == false {
         //     break println!("Answer: {:?}", (&key).add(result).to_str_radix(16));
         // }
-
-        // break;
     }
 
     Ok(())
