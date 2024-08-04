@@ -4,16 +4,60 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
 
 use anyhow::bail;
+use clap::Subcommand;
+use cudarc::driver::{CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig};
 use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
+use k256::elliptic_curve::sec1::ToEncodedPoint;
 use num_bigint::BigUint;
 use num_traits::{ToBytes, ToPrimitive};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use rayon::spawn;
-
+use puzzle_solver::SECP256K1;
 use crate::puzzle::{Event, Hasher, Solution, Utility};
 use crate::puzzles::{PuzzleDescriptor, PuzzleRange};
 use crate::reporter::Reporter;
+
+#[repr(C)]
+#[derive(Debug, Default)]
+struct ThreadSolution {
+    thread: u32,
+    index: u32,
+}
+
+impl ThreadSolution {
+    fn is_found(&self) -> bool {
+        self.thread != 0 || self.index != 0
+    }
+
+    fn print(&self, keys: &Vec<BigUint>) {
+        let key = keys.get(self.thread as usize).unwrap();
+
+        println!("Solution: {:?}", key.add(self.index + 1).to_str_radix(16));
+        println!("{:?}", self);
+    }
+
+    fn to_solution(&self, keys: &Vec<BigUint>) -> Solution {
+        let key = keys.get(self.thread as usize).unwrap();
+
+        Solution(key.add(self.index + 1))
+    }
+}
+
+unsafe impl DeviceRepr for ThreadSolution {}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Device {
+    CPU,
+    GPU {
+        #[arg(short, long, default_value_t = 256)]
+        threads: u32,
+        #[arg(short, long, default_value_t = 256)]
+        blocks: u32,
+        #[arg(short, long, default_value_t = 50000)]
+        increments: u32,
+    },
+}
 
 enum Error {
     FailedToReportHashRate
@@ -31,7 +75,7 @@ pub struct Worker<T: Hasher> {
 
 impl<T> Worker<T>
 where
-    T: Hasher + Send + Sync
+    T: Hasher + Send + Sync,
 {
     pub fn from_puzzle(challenge: &PuzzleDescriptor, utility: Arc<Utility<T>>) -> anyhow::Result<Self> {
         let (sender, receiver) = channel::<u64>();
@@ -91,8 +135,17 @@ where
         }
     }
 
-    pub fn work(&self, increments: &BigUint) -> Option<Solution> {
-        self.compute(increments)
+    pub fn work(&self, device: Device) -> Option<Solution> {
+        match device {
+            Device::CPU => {
+                loop {
+                    if let Ok(solution) = self.compute_parallel() {
+                        break Some(Solution(solution))
+                    }
+                }
+            },
+            Device::GPU { blocks, threads, increments } => self.compute_gpu(blocks, threads, increments)
+        }
     }
 
     fn compute_parallel(&self) -> anyhow::Result<BigUint> {
@@ -130,7 +183,7 @@ where
         // }
 
         if let Some(solution) = solution {
-            return Ok(solution)
+            return Ok(solution);
         }
 
         bail!("Solution not found...")
@@ -161,6 +214,59 @@ where
 
         None
     }
+
+    fn compute_gpu(&self, blocks: u32, threads: u32, increments: u32) -> Option<Solution> {
+        let increments = BigUint::from(increments);
+        let device = cudarc::driver::CudaDevice::new(0).unwrap();
+
+        device.load_ptx(SECP256K1.into(), "secp256k1", &["start"]).unwrap();
+
+        let target_param: CudaSlice<_> = device.htod_sync_copy(&self.target).unwrap();
+
+        let cfg: LaunchConfig = LaunchConfig {
+            grid_dim: (blocks, 1, 1),
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        loop {
+            let mut batches = vec![];
+
+            for _ in 0..(threads * blocks) {
+                let (key, _) = self.range.random_between(&increments, self.utility.clone());
+
+                batches.push(key);
+            }
+
+            let mut flatten: Vec<u8> = Vec::with_capacity((threads * blocks * 2 * 32) as usize);
+
+            for key in &batches {
+                if let Ok(point) = self.get_curve_point(key) {
+                    let encoded = point.to_encoded_point(false);
+
+                    if let (Some(x), Some(y)) = (encoded.x(), encoded.y()) {
+                        flatten.extend(x.0);
+                        flatten.extend(y.0);
+                    }
+                }
+            }
+
+            let increments_u32 = increments.to_u32().unwrap();
+            let points_param: CudaSlice<_> = device.htod_sync_copy(&flatten).unwrap();
+            let increment_param: CudaSlice<u32> = device.htod_sync_copy(&[increments_u32]).unwrap();
+            let mut solution_param: CudaSlice<_> = device.htod_sync_copy::<ThreadSolution>(&[ThreadSolution::default()]).unwrap();
+
+            let start_function = device.get_func("secp256k1", "start").unwrap();
+
+            unsafe { start_function.launch(cfg, (&points_param, &target_param, &mut solution_param, &increment_param,)) }.unwrap();
+
+            for solution in &device.dtoh_sync_copy(&solution_param).unwrap() {
+                if solution.is_found() {
+                    return Some(solution.to_solution(&batches));
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -172,7 +278,7 @@ mod test {
     use crate::puzzle::Utility;
     use crate::puzzles::Puzzles;
     use crate::randomizer::Randomizer;
-    use crate::worker::Worker;
+    use crate::worker::{Device, Worker};
 
     #[test]
     fn test_worker() {
@@ -184,7 +290,7 @@ mod test {
         let increments = BigUint::from(1000u32);
 
         loop {
-            if let Some(solution) = worker.work(&increments) {
+            if let Some(solution) = worker.work(Device::CPU, &increments) {
                 break assert_eq!(
                     solution.to_private_key(), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
                 );

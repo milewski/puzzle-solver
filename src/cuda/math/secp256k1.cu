@@ -695,7 +695,7 @@ __device__ __forceinline__ static void process(const unsigned int* px, const uns
     }
 }
 
-extern "C" __global__ void demo(unsigned int *points, unsigned int *target, Solution *result, unsigned int *increments, unsigned int *output) {
+extern "C" __global__ void start(unsigned int *points, unsigned int *target, Solution *result, unsigned int *increments) {
 
     unsigned int x[8];
     unsigned int y[8];
@@ -706,10 +706,7 @@ extern "C" __global__ void demo(unsigned int *points, unsigned int *target, Solu
     for (int i = 0; i < 8; i++) {
         x[i] = points[startIdx + i];
         y[i] = points[startIdx + i + 8];
-//         printf("%d - %d - %x\n", idx, ( idx * 16) + i + 8, points[( idx * 16) + i + 8]);
     }
-
-//     copyBigInt(y, output);
 
     for(int i = 0; i < 8; i++) { x[i] = endian(x[i]); }
     for(int i = 0; i < 8; i++) { y[i] = endian(y[i]); }
@@ -735,11 +732,6 @@ extern "C" __global__ void demo(unsigned int *points, unsigned int *target, Solu
          }
 
     }
-
-//     printf("Grid dimensions: (%d, %d, %d)\n", gridDim.x, gridDim.y, gridDim.z);
-//     printf("Block dimensions: (%d, %d, %d)\n", blockDim.x, blockDim.y, blockDim.z);
-//     printf("Block index: (%d, %d, %d)\n", blockIdx.x, blockIdx.y, blockIdx.z);
-//     printf("Thread index: (%d, %d, %d)\n", threadIdx.x, threadIdx.y, threadIdx.z);
 
 }
 

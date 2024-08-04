@@ -1,3 +1,5 @@
+# Bitcoin Puzzle Solver Project
+
 ## What is this project about?
 
 https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
@@ -7,43 +9,37 @@ https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
 
 Several puzzles remain unsolved, amounting to a total of 956.5 BTC!
 
-The goal of this project is to tackle these puzzles. It operates on a low-powered ESP32 board,
-generating random private keys within the challenge's key space and checking if you are the lucky winner. The likelihood
-of success is zero to none, given that the device is millions of times slower than the slowest PC you've ever used.
-But who knows? Maybe you're feeling lucky today and want to give it a shot.
+The goal of this project is to tackle these puzzles. Currenly it only works on CPU and Nvidia GPUs expecificaly via CUDA.
 
-## Desktop 
+# How to Run the Solver
+
+## Run on GPU 
+
+>> Note: This works only with Nvidia GPUs.
 
 ```shell
-cargo run -p desktop --release --target x86_64-unknown-linux-gnu
-cargo run -p esp32 --release --target xtensa-esp32s3-espidf
+./puzzle-solver.exe --puzzle 66 gpu
 ```
 
-## Development Setup Guide
-
-Install `esp32` [toolchain](https://github.com/esp-rs/rust-build):
-
-```bash
-cargo install espup
-cargo install ldproxy
-cargo install espflash
-espup install
-```
-
-## On Mac
-
-To be able to flash via USB you need to install libuv:
+### Options:
 
 ```
-brew install libuv
+./puzzle-solver.exe --puzzle 66 gpu \ 
+    --threads 1024 \
+    --blocks 1024
 ```
 
-Manual: https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/get-started/index.html#installation
+## Run on CPU
 
-## If you are using WSL on windows
+```shell
+./puzzle-solver.exe --puzzle 66 cpu
+```
 
-Use the following commands to share usb device between the host and wsl
+## Donation
 
-- Install https://github.com/dorssel/usbipd-win
-- usbipd list
-- usbipd attach --wsl --busid 2-2
+If you're feeling generous, please consider a donation. Every bit helps.
+
+```
+BTC: bc1qkrcpyq9ep20nkkkh60jev7mpf0ytgjhev04aaz
+USDT/ETH: 0xcc13f793a3842fD3fE192f5358249612Fa3D173F
+```
