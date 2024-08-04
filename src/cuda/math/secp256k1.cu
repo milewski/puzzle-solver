@@ -731,7 +731,7 @@ __device__ __forceinline__ static void beginBatchAdd(const unsigned int* px, con
 __device__ __forceinline__ static void beginBatchAddWithDouble(const unsigned int* px, const unsigned int* py, unsigned int* xPtr, unsigned int* chain, int i, int batchIdx, unsigned int inverse[8])
 {
 	unsigned int x[8];
-	readInt(xPtr, i, x);
+ 	readInt(xPtr, i, x);
 
 	if (equal(px, x)) {
 		addModP(py, py, x);
@@ -745,7 +745,7 @@ __device__ __forceinline__ static void beginBatchAddWithDouble(const unsigned in
 	// c[2] = diff2 * diff1 * diff0, etc
 	mulModP(x, inverse);
 
-	writeInt(chain, batchIdx, inverse);
+// 	writeInt(chain, batchIdx, inverse);
 }
 #ifdef VECTORIZED_MEMORY_ACCESS
 __device__ static void completeBatchAddWithDouble(const unsigned int* px, const unsigned int* py, unsigned int* xPtr, unsigned int* yPtr, int i, int batchIdx, unsigned int* chain, unsigned int* inverse, unsigned int newX[8], unsigned int newY[8])
@@ -763,7 +763,7 @@ __device__ static void completeBatchAddWithDouble(const unsigned int* px, const 
 	if (batchIdx >= 1) {
 		unsigned int c[8];
 
-		readInt(chain, batchIdx - 1, c);
+// 		readInt(chain, batchIdx - 1, c);
 
 		mulModP(inverse, c, s);
 
@@ -895,65 +895,56 @@ __device__ void hashPublicKey(const unsigned int* x, const unsigned int* y, unsi
 	ripemd160sha256(hash, digestOut);
 }
 
-extern "C" __global__ void demo(unsigned int *points, unsigned int *target, unsigned int *result) {
+struct Solution {
+    unsigned int thread;
+    unsigned int index;
+};
+
+extern "C" __global__ void demo(unsigned int *points, unsigned int *target, Solution *result, unsigned int *output) {
+
 
     unsigned int x[8];
     unsigned int y[8];
 
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = (blockIdx.x * blockDim.x + threadIdx.x);
     unsigned int startIdx = idx * 16;
 
     for (int i = 0; i < 8; i++) {
         x[i] = points[startIdx + i];
-        y[i] = points[startIdx + 16 + i];
+        y[i] = points[startIdx + i + 8];
+//         printf("%d - %d - %x\n", idx, ( idx * 16) + i + 8, points[( idx * 16) + i + 8]);
     }
 
-    unsigned int out[8];
-    unsigned int inverse[8] = {0,0,0,0,0,0,0,1};
-
-    unsigned int newX[8];
-    unsigned int newY[8];
+//     copyBigInt(y, output);
 
     for(int i = 0; i < 8; i++) { x[i] = endian(x[i]); }
     for(int i = 0; i < 8; i++) { y[i] = endian(y[i]); }
 
-    unsigned int chain[8];
+    unsigned int out[8];
 
-//     beginBatchAddWithDouble(_GX, _GY, x, 0, 0, 0, inverse);
-//     doBatchInverse(inverse);
-//     completeBatchAddWithDouble(_GX, _GY, x, y, 0, 0, 0, inverse, newX, newY);
+     for (int i = 0; i < 100000; i++) {
 
-    hashPublicKey(x, y, out);
+         unsigned int inverse[8] = {0,0,0,0,0,0,0,1};
 
-//     if (threadIdx.x == 2) {
-//         copyBigInt(x, result);
-//     }
+         beginBatchAddWithDouble(_GX, _GY, x, 0, idx, 0, inverse);
+         doBatchInverse(inverse);
+         completeBatchAddWithDouble(_GX, _GY, x, y, idx, 0, 0, inverse, x, y);
 
-    if (equal(out, target)) {
-        *result = idx;
-//         copyBigInt(idx, result);
+         hashPublicKey(x, y, out);
+
+         if (equal(out, target)) {
+            printf("found");
+            result->index = (unsigned int)i;
+            result->thread = idx;
+            break;
+         }
+
     }
 
 //     printf("Grid dimensions: (%d, %d, %d)\n", gridDim.x, gridDim.y, gridDim.z);
 //     printf("Block dimensions: (%d, %d, %d)\n", blockDim.x, blockDim.y, blockDim.z);
 //     printf("Block index: (%d, %d, %d)\n", blockIdx.x, blockIdx.y, blockIdx.z);
 //     printf("Thread index: (%d, %d, %d)\n", threadIdx.x, threadIdx.y, threadIdx.z);
-
-//     unsigned int out2[8];
-//     unsigned int inverse2[8] = {0,0,0,0,0,0,0,1};
-//
-//     unsigned int newX2[8];
-//     unsigned int newY2[8];
-//
-//     beginBatchAddWithDouble(_GX, _GY, newX, inverse, 0, 0, inverse);
-//     doBatchInverse(inverse);
-//     completeBatchAddWithDouble(_GX, _GY, newX, newY, 0, 0, 0, inverse, newX2, newY2);
-//
-//     hashPublicKey(newX2, newY2, out2);
-//
-//     if (equal(out2, target)) {
-//         copyBigInt(target, result);
-//     }
 
 }
 
