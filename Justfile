@@ -1,5 +1,5 @@
-desktop-mac:
-    cargo run --release -p desktop --target x86_64-apple-darwin
+run:
+    cargo run --release -- --puzzle 66 gpu
 
 build:
     cargo build --release

@@ -13,15 +13,13 @@ The goal of this project is to tackle these puzzles. Currenly it only works on C
 
 # How to Run the Solver
 
-## Run on GPU 
-
->> Note: This works only with Nvidia GPUs.
+## Run on GPU (Nvidia)
 
 ```shell
 ./puzzle-solver.exe --puzzle 66 gpu
 ```
 
-### Options:
+#### Options:
 
 ```
 ./puzzle-solver.exe --puzzle 66 gpu \ 
@@ -40,6 +38,7 @@ The goal of this project is to tackle these puzzles. Currenly it only works on C
 If you're feeling generous, please consider a donation. Every bit helps.
 
 ```
-BTC: bc1qkrcpyq9ep20nkkkh60jev7mpf0ytgjhev04aaz
-USDT/ETH: 0xcc13f793a3842fD3fE192f5358249612Fa3D173F
+ BTC: bc1qkrcpyq9ep20nkkkh60jev7mpf0ytgjhev04aaz
+ ETH: 0xcc13f793a3842fD3fE192f5358249612Fa3D173F
+USDT: 0xcc13f793a3842fD3fE192f5358249612Fa3D173F
 ```
