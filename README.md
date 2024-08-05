@@ -17,8 +17,8 @@ You can find the binaries on the [releases](https://github.com/milewski/puzzle-s
 
 - Windows: [puzzle-solver (CPU + GPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-windows_puzzle-solver.exe)
 - Linux: [puzzle-solver (CPU + GPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-linux_puzzle-solver)
-- Mac: [puzzle-solver (CPU - Intel)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-apple_puzzle-solver)
-- Mac: [puzzle-solver (CPU - ARM)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/aarch64-apple_puzzle-solver)
+- Mac (Intel): [puzzle-solver (CPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-apple_puzzle-solver)
+- Mac (ARM): [puzzle-solver (CPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/aarch64-apple_puzzle-solver)
 
 # How to Run the Solver
 
