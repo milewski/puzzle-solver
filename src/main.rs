@@ -29,7 +29,7 @@ fn main() -> anyhow::Result<()> {
     let worker = puzzle.get_worker_for_puzzle(args.puzzle)?;
 
     println!("Working on puzzle #{:?} via {}.", args.puzzle, match args.mode {
-        Device::CPU => "CPU",
+        Device::CPU { .. } => "CPU",
         #[cfg(feature = "cuda")]
         Device::GPU { .. } => "GPU"
     });

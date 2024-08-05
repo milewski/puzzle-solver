@@ -15,7 +15,7 @@ impl Reporter {
         Self {
             rate: 0,
             report_at: Instant::now(),
-            interval: Duration::from_secs(60),
+            interval: Duration::from_secs(10),
         }
     }
 
@@ -23,7 +23,7 @@ impl Reporter {
         Arc::new(Mutex::new(Self {
             rate: 0,
             report_at: Instant::now(),
-            interval: Duration::from_secs(60),
+            interval: Duration::from_secs(1),
         }))
     }
 
@@ -44,7 +44,8 @@ impl Reporter {
                 .with_scales(scales)
                 .format(count as f64);
 
-            println!("Hash rate: {}", number);
+            println!("Hashrate: {}", number);
+
             self.rate = 0;
             self.report_at = Instant::now();
         }
