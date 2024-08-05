@@ -5,7 +5,6 @@ use std::sync::mpsc::{channel, Sender};
 
 use anyhow::bail;
 use clap::Subcommand;
-use cudarc::driver::{CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig};
 use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
@@ -13,10 +12,15 @@ use num_bigint::BigUint;
 use num_traits::{ToBytes, ToPrimitive};
 use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 use rayon::spawn;
-use puzzle_solver::SECP256K1;
 use crate::puzzle::{Event, Hasher, Solution, Utility};
 use crate::puzzles::{PuzzleDescriptor, PuzzleRange};
 use crate::reporter::Reporter;
+
+#[cfg(feature = "cuda")]
+use cudarc::driver::{CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig};
+
+#[cfg(feature = "cuda")]
+pub const SECP256K1: &str = include_str!(concat!(env!("OUT_DIR"), "/secp256k1.ptx"));
 
 #[repr(C)]
 #[derive(Debug, Default)]
@@ -44,11 +48,14 @@ impl ThreadSolution {
     }
 }
 
+#[cfg(feature = "cuda")]
 unsafe impl DeviceRepr for ThreadSolution {}
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum Device {
     CPU,
+
+    #[cfg(feature = "cuda")]
     GPU {
         #[arg(short, long, default_value_t = 256)]
         threads: u32,
@@ -144,6 +151,7 @@ where
                     }
                 }
             },
+            #[cfg(feature = "cuda")]
             Device::GPU { blocks, threads, increments } => self.compute_gpu(blocks, threads, increments)
         }
     }
@@ -215,6 +223,7 @@ where
         None
     }
 
+    #[cfg(feature = "cuda")]
     fn compute_gpu(&self, blocks: u32, threads: u32, increments: u32) -> Option<Solution> {
         let increments = BigUint::from(increments);
         let device = cudarc::driver::CudaDevice::new(0).unwrap();
@@ -287,10 +296,9 @@ mod test {
         let puzzle = puzzle.get(10).unwrap();
 
         let worker = Worker::from_puzzle(puzzle, randomizer).unwrap();
-        let increments = BigUint::from(1000u32);
 
         loop {
-            if let Some(solution) = worker.work(Device::CPU, &increments) {
+            if let Some(solution) = worker.work(Device::CPU) {
                 break assert_eq!(
                     solution.to_private_key(), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
                 );

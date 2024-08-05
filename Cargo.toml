@@ -15,8 +15,14 @@ num-traits = "^0.2.19"
 k256 = { version = "^0.14.0-pre.0", features = ["precomputed-tables"] }
 rayon = "1.10.0"
 human_format = "1.1.0"
-cudarc = { version = "0.11.8", features = ["cuda-12050"] }
 clap = { version = "4.5.13", features = ["derive"] }
+cudarc = { version = "0.11.8", features = ["cuda-12050"], optional = true }
 
 [build-dependencies]
-bindgen_cuda = "0.1.5"
+bindgen_cuda = { version = "0.1.5", optional = true }
+
+[features]
+cuda = [
+    "cudarc",
+    "bindgen_cuda"
+]

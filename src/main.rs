@@ -10,13 +10,6 @@ mod puzzle;
 mod worker;
 mod randomizer;
 
-#[derive(Debug, Clone, ValueEnum)]
-enum Mode {
-    CPU,
-    /// Only works on NVIDIA GPUs.
-    GPU,
-}
-
 /// Solver for puzzle 1 to 160
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -37,6 +30,7 @@ fn main() -> anyhow::Result<()> {
 
     println!("Working on puzzle #{:?} via {}.", args.puzzle, match args.mode {
         Device::CPU => "CPU",
+        #[cfg(feature = "cuda")]
         Device::GPU { .. } => "GPU"
     });
 

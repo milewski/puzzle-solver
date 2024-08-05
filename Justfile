@@ -1,5 +1,5 @@
-run:
-    cargo run --release -- --puzzle 66 gpu
+run puzzle device:
+    cargo run --release -- --puzzle {{ puzzle }} {{ device }}
 
 build:
-    cargo build --release
+    docker compose up
