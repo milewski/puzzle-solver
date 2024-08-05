@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::{Parser};
 
 use crate::puzzle::PuzzleManager;
 use crate::randomizer::Randomizer;
@@ -25,7 +25,7 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let mut puzzle = PuzzleManager::new(Randomizer {})?;
+    let puzzle = PuzzleManager::new(Randomizer {})?;
     let worker = puzzle.get_worker_for_puzzle(args.puzzle)?;
 
     println!("Working on puzzle #{:?} via {}.", args.puzzle, match args.mode {

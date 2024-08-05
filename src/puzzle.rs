@@ -1,7 +1,5 @@
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
-use std::thread::{available_parallelism, JoinHandle, spawn};
 
 use num_bigint::BigUint;
 use num_traits::ToBytes;
