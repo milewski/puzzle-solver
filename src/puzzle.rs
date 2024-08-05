@@ -1,7 +1,5 @@
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicBool;
-use std::thread::{available_parallelism, JoinHandle, spawn};
 
 use num_bigint::BigUint;
 use num_traits::ToBytes;
@@ -31,43 +29,12 @@ impl<T: Hasher + Send + Sync + 'static> PuzzleManager<T> {
         )
     }
 
-    pub fn start(&self, number: u8, notifier: impl Fn(Event) + Send + Sync + 'static) -> anyhow::Result<()> {
-        Ok(
-            self.get_worker_for_puzzle(number)?.work_forever(Arc::new(notifier))
-        )
-    }
-
     pub fn get_worker_for_puzzle(&self, number: u8) -> anyhow::Result<Worker<T>> {
         Worker::from_puzzle(
             self.puzzles.get(number).unwrap(),
             self.randomizer.clone(),
             // self.reporter.clone(),
         )
-    }
-
-    pub fn start_all_cores(&self, number: u8, notifier: impl Fn(Event, Arc<AtomicBool>) + Send + Sync + 'static) -> anyhow::Result<()> {
-        let signal = Arc::new(AtomicBool::new(false));
-        let signal_notifier = signal.clone();
-
-        let notifier = Arc::new(move |event| notifier(event, signal_notifier.clone()));
-
-        if let Ok(cores) = available_parallelism() {
-            let handles: Vec<JoinHandle<()>> = (0..=cores.get())
-                .map(|_| {
-                    let mut worker = self.get_worker_for_puzzle(number).unwrap();
-                    let notifier = notifier.clone();
-                    let signal = signal.clone();
-
-                    spawn(move || { worker.work_with_signal(notifier, signal); })
-                })
-                .collect();
-
-            for handle in handles {
-                handle.join().expect("Failed to join thread");
-            }
-        }
-
-        Ok(())
     }
 }
 

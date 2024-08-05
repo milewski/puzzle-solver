@@ -1,23 +1,26 @@
 use std::ops::{Add, AddAssign, Sub};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
+use std::thread;
+use std::thread::{available_parallelism, JoinHandle, spawn};
 
-use anyhow::bail;
 use clap::Subcommand;
+#[cfg(feature = "cuda")]
 use cudarc::driver::{CudaSlice, DeviceRepr, LaunchAsync, LaunchConfig};
 use k256::{ProjectivePoint, SecretKey};
 use k256::elliptic_curve::group::GroupEncoding;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use num_bigint::BigUint;
 use num_traits::{ToBytes, ToPrimitive};
-use rayon::iter::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
-use rayon::spawn;
-use puzzle_solver::SECP256K1;
-use crate::puzzle::{Event, Hasher, Solution, Utility};
+
+use crate::puzzle::{Hasher, Solution, Utility};
 use crate::puzzles::{PuzzleDescriptor, PuzzleRange};
 use crate::reporter::Reporter;
 
+#[cfg(feature = "cuda")]
+pub const SECP256K1: &str = include_str!(concat!(env!("OUT_DIR"), "/secp256k1.ptx"));
+
+#[cfg(feature = "cuda")]
 #[repr(C)]
 #[derive(Debug, Default)]
 struct ThreadSolution {
@@ -25,16 +28,10 @@ struct ThreadSolution {
     index: u32,
 }
 
+#[cfg(feature = "cuda")]
 impl ThreadSolution {
     fn is_found(&self) -> bool {
         self.thread != 0 || self.index != 0
-    }
-
-    fn print(&self, keys: &Vec<BigUint>) {
-        let key = keys.get(self.thread as usize).unwrap();
-
-        println!("Solution: {:?}", key.add(self.index + 1).to_str_radix(16));
-        println!("{:?}", self);
     }
 
     fn to_solution(&self, keys: &Vec<BigUint>) -> Solution {
@@ -44,11 +41,20 @@ impl ThreadSolution {
     }
 }
 
+#[cfg(feature = "cuda")]
 unsafe impl DeviceRepr for ThreadSolution {}
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum Device {
-    CPU,
+    CPU {
+        #[arg(short, long, default_value_t = 0)]
+        threads: u8,
+
+        #[arg(short, long, default_value_t = 100000)]
+        increments: u32,
+    },
+
+    #[cfg(feature = "cuda")]
     GPU {
         #[arg(short, long, default_value_t = 256)]
         threads: u32,
@@ -63,7 +69,7 @@ enum Error {
     FailedToReportHashRate
 }
 
-pub struct Worker<T: Hasher> {
+pub struct Worker<T: Hasher + 'static> {
     range: PuzzleRange,
     // reporter: Arc<Mutex<Reporter>>,
     reporter: Sender<u64>,
@@ -115,78 +121,62 @@ where
         Ok(point)
     }
 
-    pub fn work_forever(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>) {
-        loop {
-            if let Ok(solution) = self.compute_parallel() {
-                break notifier(Event::SolutionFound(Solution(solution)));
-            }
-        }
-    }
-
-    pub fn work_with_signal(&self, notifier: Arc<dyn Fn(Event) + Send + Sync + 'static>, signal: Arc<AtomicBool>) {
-        loop {
-            if signal.load(Ordering::Relaxed) {
-                break;
-            }
-
-            if let Ok(solution) = self.compute_parallel() {
-                break notifier(Event::SolutionFound(Solution(solution)));
-            }
-        }
-    }
-
     pub fn work(&self, device: Device) -> Option<Solution> {
         match device {
-            Device::CPU => {
-                loop {
-                    if let Ok(solution) = self.compute_parallel() {
-                        break Some(Solution(solution))
-                    }
-                }
-            },
+            Device::CPU { threads, increments } => self.compute_parallel(threads, increments),
+            #[cfg(feature = "cuda")]
             Device::GPU { blocks, threads, increments } => self.compute_gpu(blocks, threads, increments)
         }
     }
 
-    fn compute_parallel(&self) -> anyhow::Result<BigUint> {
-        let (min, max) = self.range.random_between(&self.increments, self.utility.clone());
+    fn compute_parallel(&self, threads: u8, increments: u32) -> Option<Solution> {
+        let increments = BigUint::from(increments);
+        let mut handlers = vec![];
 
-        let mut counter = min.clone();
-        let mut point = self.get_curve_point(&counter)?;
+        loop {
+            let threads = match threads {
+                0 => available_parallelism().unwrap().get(),
+                _ => threads as usize
+            };
 
-        let mut keys = Vec::with_capacity(self.increments.to_usize().unwrap());
+            for _ in 0..=threads {
+                let (min, max) = self.range.random_between(&increments, self.utility.clone());
+                let utility = self.utility.clone();
+                let target = self.target;
+                let reporter = self.reporter.clone();
+                let mut counter = min.clone();
+                let mut point = self.get_curve_point(&counter).expect("could not get curve point");
+                let difference = (&max).sub(min).to_u64().unwrap();
 
-        while counter <= max {
-            point.add_assign(ProjectivePoint::GENERATOR);
-            keys.push(point.to_bytes());
-            counter.add_assign(1u8);
-        }
+                let handle: JoinHandle<Option<Solution>> = thread::spawn(move || {
+                    while counter <= max {
+                        let sha256: [u8; 32] = utility.sha256(&point.to_bytes());
+                        let ripemd160: [u8; 20] = utility.ripemd160(&sha256);
 
-        let solution: Option<BigUint> = keys
-            .into_par_iter()
-            .enumerate()
-            .map(|(index, point)| {
-                let sha256: [u8; 32] = self.utility.sha256(&point);
-                let ripemd160: [u8; 20] = self.utility.ripemd160(&sha256);
+                        if target == ripemd160 {
+                            return Some(Solution(counter));
+                        }
 
-                if self.target == ripemd160 {
-                    Some((&min).add(index + 1))
-                } else {
+                        point.add_assign(ProjectivePoint::GENERATOR);
+                        counter.add_assign(1u8);
+                    }
+
+                    if let Err(error) = reporter.send(difference) {
+                        println!("Failed to report hash rate: {:?}", error)
+                    }
+
                     None
+                });
+
+                handlers.push(handle);
+            }
+
+            for handler in handlers.drain(..) {
+                if let Ok(Some(solution)) = handler.join() {
+                    return Some(solution);
                 }
-            })
-            .find_map_first(|solution| solution)
-            .take();
-
-        // if let (Ok(mut logger), Some(count)) = (self.reporter.lock(), max.sub(min).to_u64()) {
-        //     logger.update(count)
-        // }
-
-        if let Some(solution) = solution {
-            return Ok(solution);
+            }
         }
-
-        bail!("Solution not found...")
     }
 
     fn compute(&self, increments: &BigUint) -> Option<Solution> {
@@ -215,8 +205,8 @@ where
         None
     }
 
+    #[cfg(feature = "cuda")]
     fn compute_gpu(&self, blocks: u32, threads: u32, increments: u32) -> Option<Solution> {
-        let increments = BigUint::from(increments);
         let device = cudarc::driver::CudaDevice::new(0).unwrap();
 
         device.load_ptx(SECP256K1.into(), "secp256k1", &["start"]).unwrap();
@@ -228,6 +218,9 @@ where
             block_dim: (threads, 1, 1),
             shared_mem_bytes: 0,
         };
+
+        let hashes = ((threads * blocks) * increments) as u64;
+        let increments = BigUint::from(increments);
 
         loop {
             let mut batches = vec![];
@@ -265,6 +258,10 @@ where
                     return Some(solution.to_solution(&batches));
                 }
             }
+
+            if let Err(error) = self.reporter.send(hashes) {
+                println!("Failed to report hash rate: {:?}", error)
+            }
         }
     }
 }
@@ -272,8 +269,6 @@ where
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
-
-    use num_bigint::BigUint;
 
     use crate::puzzle::Utility;
     use crate::puzzles::Puzzles;
@@ -287,10 +282,9 @@ mod test {
         let puzzle = puzzle.get(10).unwrap();
 
         let worker = Worker::from_puzzle(puzzle, randomizer).unwrap();
-        let increments = BigUint::from(1000u32);
 
         loop {
-            if let Some(solution) = worker.work(Device::CPU, &increments) {
+            if let Some(solution) = worker.work(Device::CPU { threads: 1, increments: 100 }) {
                 break assert_eq!(
                     solution.to_private_key(), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2]
                 );

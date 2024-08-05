@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::{Parser};
 
 use crate::puzzle::PuzzleManager;
 use crate::randomizer::Randomizer;
@@ -9,13 +9,6 @@ mod reporter;
 mod puzzle;
 mod worker;
 mod randomizer;
-
-#[derive(Debug, Clone, ValueEnum)]
-enum Mode {
-    CPU,
-    /// Only works on NVIDIA GPUs.
-    GPU,
-}
 
 /// Solver for puzzle 1 to 160
 #[derive(Parser, Debug)]
@@ -32,11 +25,12 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    let mut puzzle = PuzzleManager::new(Randomizer {})?;
+    let puzzle = PuzzleManager::new(Randomizer {})?;
     let worker = puzzle.get_worker_for_puzzle(args.puzzle)?;
 
     println!("Working on puzzle #{:?} via {}.", args.puzzle, match args.mode {
-        Device::CPU => "CPU",
+        Device::CPU { .. } => "CPU",
+        #[cfg(feature = "cuda")]
         Device::GPU { .. } => "GPU"
     });
 

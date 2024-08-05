@@ -12,7 +12,7 @@ impl Hasher for Randomizer {
     }
 
     fn sha256(&self, bytes: &[u8]) -> [u8; 32] {
-        bitcoin::hashes::sha256::Hash::hash(&bytes).to_byte_array()
+        bitcoin::hashes::sha256::Hash::hash(bytes).to_byte_array()
     }
 
     fn ripemd160(&self, bytes: &[u8]) -> [u8; 20] {

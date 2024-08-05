@@ -1,10 +1,9 @@
 use std::ops::{Add, Rem, Sub};
 use std::sync::Arc;
 
-use anyhow::Context;
 use num_bigint::BigUint;
 use num_traits::Num;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize};
 
 use crate::puzzle::{Hasher, Utility};
 
@@ -33,14 +32,14 @@ impl PuzzleRange {
 
             Ok(Self { min, max })
         } else {
-            return Err(Error::InvalidInputFormat);
+            Err(Error::InvalidInputFormat)
         }
     }
 
     fn random<R: Hasher>(&self, randomizer: Arc<Utility<R>>) -> BigUint {
         let bits = (self.max.bits() / 8) as usize;
         let random = &randomizer.random_bytes(bits + 1);
-        let random = BigUint::from_bytes_le(&random);
+        let random = BigUint::from_bytes_le(random);
 
         let min = &self.min;
         let max = &self.max;
@@ -49,8 +48,8 @@ impl PuzzleRange {
     }
 
     pub fn random_between<R: Hasher>(&self, increments: &BigUint, randomizer: Arc<Utility<R>>) -> (BigUint, BigUint) {
-        let mut min = self.random(randomizer);
-        let mut max = (&min).add(increments).min(self.max.clone());
+        let min = self.random(randomizer);
+        let max = (&min).add(increments).min(self.max.clone());
 
         (min, max)
     }
@@ -75,7 +74,7 @@ impl PuzzleDescriptor {
         match bs58::decode(self.address).into_vec() {
             Err(_) => None,
             Ok(decoded) => {
-                for (index, data) in decoded[1..=20].into_iter().enumerate() {
+                for (index, data) in decoded[1..=20].iter().enumerate() {
                     target[index] = *data
                 }
 
