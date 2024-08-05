@@ -9,15 +9,16 @@ https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
 
 Several puzzles remain unsolved, amounting to a total of 956.5 BTC!
 
-The goal of this project is to tackle these puzzles. Currenly it only works on CPU and Nvidia GPUs expecificaly via CUDA.
+The goal of this project is to tackle these puzzles. Currently, it only works on CPU and Nvidia GPUs specifically via CUDA.
 
 # Download
 
 You can find the binaries on the [releases](https://github.com/milewski/puzzle-solver/releases) page. 
 
-- Windows: [puzzle-solver](https://github.com/milewski/puzzle-solver/releases/download/0.1.0/puzzle-solver.exe)
-- Linux: @todo
-- Mac: @todo
+- Windows: [puzzle-solver (CPU + GPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-pc-windows-gnu_puzzle-solver.exe)
+- Linux: [puzzle-solver (CPU + GPU)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-unknown-linux-gnu_puzzle-solver)
+- Mac: [puzzle-solver (CPU - Intel)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/x86_64-apple-darwin_puzzle-solver)
+- Mac: [puzzle-solver (CPU - ARM)](https://github.com/milewski/puzzle-solver/releases/download/0.1.1/aarch64-apple-darwin_puzzle-solver)
 
 # How to Run the Solver
 
@@ -40,6 +41,14 @@ You can find the binaries on the [releases](https://github.com/milewski/puzzle-s
 ```shell
 ./puzzle-solver.exe --puzzle 66 cpu
 ```
+
+#### Options:
+
+```
+./puzzle-solver.exe --puzzle 66 cpu \ 
+    --threads 8
+```
+
 https://github.com/milewski/puzzle-solver/releases/download/0.1.0/puzzle-solver.exe
 ## Donation
 
