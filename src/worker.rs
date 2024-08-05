@@ -207,7 +207,6 @@ where
 
     #[cfg(feature = "cuda")]
     fn compute_gpu(&self, blocks: u32, threads: u32, increments: u32) -> Option<Solution> {
-        let increments = BigUint::from(increments);
         let device = cudarc::driver::CudaDevice::new(0).unwrap();
 
         device.load_ptx(SECP256K1.into(), "secp256k1", &["start"]).unwrap();
@@ -219,6 +218,9 @@ where
             block_dim: (threads, 1, 1),
             shared_mem_bytes: 0,
         };
+
+        let hashes = ((threads * blocks) * increments) as u64;
+        let increments = BigUint::from(increments);
 
         loop {
             let mut batches = vec![];
@@ -255,6 +257,10 @@ where
                 if solution.is_found() {
                     return Some(solution.to_solution(&batches));
                 }
+            }
+
+            if let Err(error) = self.reporter.send(hashes) {
+                println!("Failed to report hash rate: {:?}", error)
             }
         }
     }

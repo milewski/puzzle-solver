@@ -49,7 +49,12 @@ You can find the binaries on the [releases](https://github.com/milewski/puzzle-s
     --threads 8
 ```
 
-https://github.com/milewski/puzzle-solver/releases/download/0.1.0/puzzle-solver.exe
+## Run from Source
+
+```
+cargo run --release --features cuda --puzzle 66 gpu
+```
+
 ## Donation
 
 If you're feeling generous, please consider a donation. Every bit helps.
