@@ -5,12 +5,3 @@ services:
     working_dir: /app
     volumes:
       - .:/app
-    command:
-      - /bin/bash
-      - -c
-      - |
-        rm -rf output
-        cargo build    --release --target x86_64-unknown-linux-gnu --target-dir output --features cuda || exit 1
-        cargo build    --release --target x86_64-pc-windows-gnu    --target-dir output --features cuda || exit 1
-        cargo zigbuild --release --target x86_64-apple-darwin      --target-dir output                 || exit 1
-        cargo zigbuild --release --target aarch64-apple-darwin     --target-dir output                 || exit 1
