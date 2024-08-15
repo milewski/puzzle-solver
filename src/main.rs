@@ -1,3 +1,4 @@
+use std::fs;
 use clap::{Parser};
 
 use crate::puzzle::PuzzleManager;
@@ -9,6 +10,7 @@ mod reporter;
 mod puzzle;
 mod worker;
 mod randomizer;
+pub mod sha256;
 
 /// Solver for puzzle 1 to 160
 #[derive(Parser, Debug)]
@@ -36,6 +38,7 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(solution) = worker.work(args.mode) {
         println!("Solution found: {:0>64}", solution.to_hex());
+        fs::write("solution.txt", solution.to_hex())?;
     }
 
     Ok(())

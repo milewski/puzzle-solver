@@ -16,6 +16,13 @@ k256 = { version = "^0.14.0-pre.0", features = ["precomputed-tables"] }
 human_format = "1.1.0"
 clap = { version = "4.5.13", features = ["derive"] }
 cudarc = { version = "0.11.8", features = ["cuda-12050"], optional = true }
+criterion = { version = "0.5.1" }
+
+[lib]
+
+[[bench]]
+name = "benchmark"
+harness = false
 
 [build-dependencies]
 bindgen_cuda = { version = "0.1.5", optional = true }

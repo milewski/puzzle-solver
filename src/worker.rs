@@ -129,6 +129,7 @@ where
         }
     }
 
+    #[inline]
     fn compute_parallel(&self, threads: u8, increments: u32) -> Option<Solution> {
         let increments = BigUint::from(increments);
         let mut handlers = vec![];
