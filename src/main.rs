@@ -11,6 +11,7 @@ mod puzzle;
 mod worker;
 mod randomizer;
 pub mod sha256;
+mod secp256k1;
 
 /// Solver for puzzle 1 to 160
 #[derive(Parser, Debug)]
